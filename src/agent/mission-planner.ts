@@ -3,12 +3,26 @@ import { ollama, MODEL } from '../ollama-client.js';
 import { Mission, MissionSchema } from './types.js';
 import { logObject, log } from '../logger.js';
 import { repairJson } from './json-repair.js';
+import { getMemoryService } from '../memory/index.js';
 
 export class MissionPlanner {
+  private memory = getMemoryService();
+
   async planMission(description: string, workspaceRoot: string = process.cwd()): Promise<Mission> {
     log(`Planning mission: ${description}`, 'INFO');
+
+    let memoriesSection = '';
+    if (this.memory.isEnabled()) {
+      const relevantMemories = await this.memory.retrieveRelevant(
+        `${workspaceRoot} ${description}`,
+        5
+      );
+      memoriesSection = this.memory.formatMemoriesForPrompt(relevantMemories);
+    }
+
     const systemPrompt = `You are a mission planning agent. Break the mission into milestones and tasks.
 Output ONLY a JSON object.
+${memoriesSection}
 
 Structure:
 {

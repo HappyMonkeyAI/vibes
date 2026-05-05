@@ -1,0 +1,30 @@
+{
+  "hooks": [
+    {
+      "name": "log-all-events",
+      "description": "Log all agent events for debugging",
+      "enabled": true,
+      "events": [
+        "before_thinking",
+        "after_thinking",
+        "before_tool_call",
+        "after_tool_call",
+        "before_task",
+        "after_task",
+        "before_mission",
+        "after_mission",
+        "on_error"
+      ],
+      "type": "command",
+      "command": "echo '[{VIBES_HOOK_EVENT}] {VIBES_HOOK_CONTEXT}'"
+    },
+    {
+      "name": "notify-on-complete",
+      "description": "Send notification when mission completes",
+      "enabled": false,
+      "events": ["after_mission"],
+      "type": "command",
+      "command": "echo 'Mission complete: {VIBES_HOOK_CONTEXT}'"
+    }
+  ]
+}

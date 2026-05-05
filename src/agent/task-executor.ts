@@ -4,9 +4,13 @@ import { Task, ToolResult, OnEvent } from './types.js';
 import { ToolDefinition, toOpenAITool } from '../tools/index.js';
 import { config } from '../config.js';
 import { log, logObject } from '../logger.js';
+import { getMemoryService } from '../memory/index.js';
+import { getSkillsService } from '../skills/index.js';
 
 export class TaskExecutor {
   private tools: ToolDefinition[];
+  private memory = getMemoryService();
+  private skills = getSkillsService();
 
   constructor(tools: ToolDefinition[]) {
     this.tools = tools;
@@ -14,10 +18,19 @@ export class TaskExecutor {
 
   async executeTask(task: Task, missionContext: string, workspaceRoot: string, onEvent?: OnEvent): Promise<Task> {
     log(`Executing task: ${task.title}`, 'INFO');
-    const messages: ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: `You are an autonomous agent executing a specific task.
+
+    let memoriesSection = '';
+    if (this.memory.isEnabled()) {
+      const relevantMemories = await this.memory.retrieveRelevant(
+        `${task.title} ${task.description} ${task.files.join(' ')}`,
+        5
+      );
+      memoriesSection = this.memory.formatMemoriesForPrompt(relevantMemories);
+    }
+
+    const skillsSection = this.skills.formatForSystemPrompt();
+
+    const systemPrompt = `You are an autonomous agent executing a specific task.
         
 Mission Context: ${missionContext}
 Working Directory: ${workspaceRoot}
@@ -27,14 +40,18 @@ Description: ${task.description}
 Files: ${task.files.join(', ')}
 Acceptance Criteria:
 ${task.acceptance_criteria.map(c => `- ${c}`).join('\n')}
+${memoriesSection}
+${skillsSection}
 
 Rules:
 1. USE TOOLS HONESTLY. If a tool returns an error, YOU MUST ACKNOWLEDGE IT.
 2. DO NOT hallucinate success. If a command fails, report the failure and try to fix it.
 3. All relative paths are relative to the Working Directory.
 4. Once all criteria are met AND VERIFIED, provide a summary and stop.
-5. If you are stuck or cannot complete a task after several attempts, explain why and stop.`,
-      },
+5. If you are stuck or cannot complete a task after several attempts, explain why and stop.`;
+
+    const messages: ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: `Begin task: ${task.title}` },
     ];
 
@@ -92,6 +109,10 @@ Rules:
             if (tool) {
               try {
                 result = await tool.execute(args, { workspaceRoot });
+                
+                if (this.memory.isEnabled()) {
+                  await this.memory.addToolUsage(toolCall.function.name, args, result);
+                }
               } catch (error: any) {
                 result = { success: false, error: `Execution error: ${error.message}` };
               }

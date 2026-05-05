@@ -11,6 +11,9 @@ const ConfigSchema = z.object({
   MAX_STEPS: z.coerce.number().default(25),
   THINKING_MODE: z.string().transform(v => v === 'enabled').default('enabled'),
   MAX_CONCURRENT_TASKS: z.coerce.number().default(2),
+  MEMORY_ENABLED: z.string().transform(v => v !== 'false').default('true'),
+  MEMORY_USER_ID: z.string().default('default'),
+  MULTI_AGENT_ENABLED: z.string().transform(v => v === 'true').default('false'),
 });
 
 const parsed = ConfigSchema.safeParse(process.env);
