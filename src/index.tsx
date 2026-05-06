@@ -14,7 +14,7 @@ import path from 'path';
 const App = () => {
   const {
     mission, pendingMission, isPlanning, isExecuting,
-    error, events, contextUsage, pendingIntervention,
+    error, events, contextUsage, pendingIntervention, activeMaxSteps,
     startMission, approveMission, rejectMission, resolveIntervention,
   } = useMission();
 
@@ -165,8 +165,12 @@ const App = () => {
       <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
         <Text color="gray">Model: {config.OLLAMA_MODEL}</Text>
         <Text color="gray">
-          Context: {contextKB}K tokens | Max Steps: {config.MAX_STEPS} | Concurrent: {config.MAX_CONCURRENT_TASKS}
+          Context: {contextKB}K tokens | Max Steps: 
         </Text>
+        <Text color={activeMaxSteps > config.MAX_STEPS ? 'yellow' : 'gray'} bold={activeMaxSteps > config.MAX_STEPS}>
+          {activeMaxSteps}{activeMaxSteps > config.MAX_STEPS ? ` (+${activeMaxSteps - config.MAX_STEPS})` : ''}
+        </Text>
+        <Text color="gray"> | Concurrent: {config.MAX_CONCURRENT_TASKS}</Text>
       </Box>
     </Box>
   );

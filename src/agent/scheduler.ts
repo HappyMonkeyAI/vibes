@@ -1,8 +1,13 @@
-import { Mission, Task, Milestone, OnEvent } from './types.js';
+import { Mission, Task, OnEvent } from './types.js';
 import { TaskExecutor } from './task-executor.js';
 import { config } from '../config.js';
 import { log } from '../logger.js';
 import { InterventionManager } from './intervention-manager.js';
+
+export type InterventionResolution = {
+  action: 'retry' | 'skip' | 'fail' | 'reply';
+  message?: string;
+};
 
 export class Scheduler {
   private mission: Mission;
@@ -13,6 +18,9 @@ export class Scheduler {
   private failedTasks: Set<string> = new Set();
   private taskMap: Map<string, Task> = new Map();
   private interventionManager = new InterventionManager();
+
+  // Pending intervention: resolve callback waiting for user input
+  private interventionResolve: ((res: InterventionResolution) => void) | null = null;
 
   constructor(mission: Mission, executor: TaskExecutor, onEvent?: OnEvent) {
     this.mission = mission;
@@ -30,16 +38,23 @@ export class Scheduler {
     }
   }
 
+  /**
+   * Called externally (from the TUI hook) to resolve a pending intervention.
+   */
+  public resolveIntervention(resolution: InterventionResolution) {
+    if (this.interventionResolve) {
+      this.interventionResolve(resolution);
+      this.interventionResolve = null;
+    }
+  }
+
   async run() {
     this.mission.status = 'executing';
     
     while (this.hasPendingTasks()) {
-      // Read status via local to defeat TS control-flow narrowing —
-      // the status is mutated asynchronously by handleTaskFailure().
       const currentStatus = this.mission.status as Mission['status'];
       if (currentStatus === 'awaiting_intervention') {
-        // Wait for intervention to be cleared externally
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 200));
         continue;
       }
 
@@ -58,14 +73,12 @@ export class Scheduler {
 
       if (tasksToStart.length > 0) {
         log(`Starting ${tasksToStart.length} tasks...`, 'INFO');
-        // We run tasks without Promise.all to handle individual failures more gracefully
         for (const task of tasksToStart) {
-          this.executeTask(task); // Start async
+          this.executeTask(task); // fire-and-forget, manages itself
         }
       }
       
-      // Small sleep to avoid CPU spinning
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     if (this.mission.status === 'executing' || this.mission.status === 'awaiting_intervention') {
@@ -84,8 +97,6 @@ export class Scheduler {
     return allTasks.filter(task => {
       if (task.status !== 'todo') return false;
       if (this.runningTasks.has(task.id)) return false;
-      
-      // Check dependencies
       return task.depends_on.every(depId => this.completedTasks.has(depId));
     });
   }
@@ -97,17 +108,13 @@ export class Scheduler {
   private async executeTask(task: Task) {
     this.runningTasks.add(task.id);
     task.status = 'in_progress';
-    // Remove from failed set in case this is a retry
     this.failedTasks.delete(task.id);
 
     try {
       const missionContext = `Mission: ${this.mission.title}\nDescription: ${this.mission.description}`;
       const updatedTask = await this.executor.executeTask(task, missionContext, this.mission.workspace_root, this.onEvent);
       
-      // Clear one-shot guidance after use
       updatedTask.userGuidance = undefined;
-
-      // Update task in mission structure and task map
       this.updateTaskInMission(updatedTask);
 
       if (updatedTask.status === 'done') {
@@ -126,18 +133,69 @@ export class Scheduler {
   }
 
   private async handleTaskFailure(task: Task) {
-    this.failedTasks.add(task.id);
-    this.markDependentsFailed(task.id);
-    
     this.mission.status = 'awaiting_intervention';
-    const question = await this.interventionManager.formulateInterventionQuestion(task, this.mission, task.error || 'Unknown error');
-    
-    this.onEvent?.({
-      type: 'intervention_required',
-      taskId: task.id,
-      error: task.error || 'Unknown error',
-      question
+    log(`Task failed, requesting intervention for: ${task.title}`, 'WARN');
+
+    // Formulate the question (with timeout fallback)
+    const question = await this.interventionManager.formulateInterventionQuestion(
+      task, this.mission, task.error || 'Unknown error'
+    );
+
+    // Wait for the user's response via a Promise
+    const resolution = await new Promise<InterventionResolution>((resolve) => {
+      this.interventionResolve = resolve;
+      this.onEvent?.({
+        type: 'intervention_required',
+        taskId: task.id,
+        error: task.error || 'Unknown error',
+        question,
+      });
     });
+
+    log(`Intervention resolved: ${resolution.action} ${resolution.message ? `"${resolution.message}"` : ''}`, 'INFO');
+
+    // Apply the resolution directly to the task in our own taskMap
+    if (resolution.action === 'fail') {
+      this.mission.status = 'failed';
+      this.failedTasks.add(task.id);
+      this.markDependentsFailed(task.id);
+      return;
+    }
+
+    if (resolution.action === 'skip') {
+      task.status = 'done';
+      task.output = '[Skipped by user]';
+      this.completedTasks.add(task.id);
+      this.updateTaskInMission(task);
+      this.mission.status = 'executing';
+      return;
+    }
+
+    // retry or reply — reset task and apply extra steps/guidance directly
+    task.status = 'todo';
+    task.error = undefined;
+    this.failedTasks.delete(task.id);
+
+    if (resolution.action === 'reply' && resolution.message) {
+      task.userGuidance = resolution.message;
+
+      // Smart step parsing
+      let bonusSteps = 10;
+      const match = resolution.message.match(/(?:add|increase|give|allow)\s+(\d+)\s+steps?/i);
+      if (match) bonusSteps = parseInt(match[1], 10);
+      task.extraSteps = (task.extraSteps || 0) + bonusSteps;
+
+      log(`User guidance set: "${task.userGuidance}" | extra steps: ${task.extraSteps}`, 'INFO');
+    } else {
+      // plain retry — still grant extra steps
+      task.extraSteps = (task.extraSteps || 0) + 10;
+    }
+
+    this.updateTaskInMission(task);
+    this.mission.status = 'executing';
+
+    // Notify the TUI that steps changed so the footer can update
+    this.onEvent?.({ type: 'steps_updated', taskId: task.id, extraSteps: task.extraSteps });
   }
 
   private markDependentsFailed(failedTaskId: string) {
@@ -159,11 +217,9 @@ export class Scheduler {
         break;
       }
     }
-    // Keep task map in sync
     this.taskMap.set(updatedTask.id, updatedTask);
   }
 
-  // Future: Add method to inject new tasks discovered during execution
   public addTask(milestoneId: string, newTask: Task) {
     const milestone = this.mission.milestones.find(m => m.id === milestoneId);
     if (milestone) {

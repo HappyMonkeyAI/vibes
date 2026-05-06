@@ -25,7 +25,7 @@ Output ONLY the question text for the user. Keep it friendly and concise.`;
           { role: 'user', content: 'Formulate the question.' }
         ],
         temperature: 0.7,
-      });
+      }, { timeout: 10000 }); // 10s timeout
 
       return response.choices[0]?.message?.content || `The task "${task.title}" failed with error: ${error}. How would you like to proceed?`;
     } catch (err: any) {
