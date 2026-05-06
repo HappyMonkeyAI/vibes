@@ -13,11 +13,13 @@ export const useMission = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
+  const [contextUsage, setContextUsage] = useState<{ used: number; total: number; percentage: number } | null>(null);
 
   const startMission = useCallback(async (description: string, workspaceRoot: string = process.cwd()) => {
     setIsPlanning(true);
     setError(null);
     setEvents([]);
+    setContextUsage(null);
     try {
       const planner = new MissionPlanner();
       const plan = await planner.planMission(description, workspaceRoot);
@@ -30,6 +32,10 @@ export const useMission = () => {
       const executor = new TaskExecutor(tools);
       
       const onEvent = (event: ExecutionEvent) => {
+        // Track context usage separately for the dashboard
+        if (event.type === 'context_update') {
+          setContextUsage({ used: event.used, total: event.total, percentage: event.percentage });
+        }
         setEvents(prev => [...prev, event]);
       };
 
@@ -51,6 +57,7 @@ export const useMission = () => {
     isExecuting,
     error,
     events,
+    contextUsage,
     startMission,
   };
 };

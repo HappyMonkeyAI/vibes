@@ -48,6 +48,7 @@ export type ExecutionEvent =
   | { type: 'tool_call'; tool: string; args: any }
   | { type: 'tool_result'; tool: string; result: ToolResult }
   | { type: 'output'; content: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'context_update'; used: number; total: number; percentage: number };
 
 export type OnEvent = (event: ExecutionEvent) => void;

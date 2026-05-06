@@ -6,10 +6,11 @@ import { Dashboard } from './tui/components/dashboard.js';
 import { MissionView } from './tui/components/mission-view.js';
 import { TaskView } from './tui/components/task-view.js';
 import { initLogger } from './logger.js';
+import { config } from './config.js';
 import path from 'path';
 
 const App = () => {
-  const { mission, isPlanning, isExecuting, error, events, startMission } = useMission();
+  const { mission, isPlanning, isExecuting, error, events, contextUsage, startMission } = useMission();
   const { exit } = useApp();
   const [workspace, setWorkspace] = React.useState(process.cwd());
   const [view, setView] = React.useState<'dashboard' | 'mission' | 'task'>('dashboard');
@@ -55,6 +56,9 @@ const App = () => {
 
   const isActive = !mission && !isPlanning;
 
+  // Format context window size for display
+  const contextKB = Math.round(config.CONTEXT_WINDOW / 1024);
+
   return (
     <Box flexDirection="column" padding={1}>
       {/* Header */}
@@ -81,7 +85,7 @@ const App = () => {
         )}
 
         {view === 'dashboard' && (
-          <Dashboard mission={mission} isPlanning={isPlanning} isExecuting={isExecuting} />
+          <Dashboard mission={mission} isPlanning={isPlanning} isExecuting={isExecuting} contextUsage={contextUsage} />
         )}
         
         {view === 'mission' && mission && (
@@ -141,9 +145,12 @@ const App = () => {
       </Box>
 
       {/* Footer */}
-      <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
+      <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
         <Text color="gray">
-          Model: VladimirGav/gemma4-26b-16GB-VRAM | Context: 32K
+          Model: {config.OLLAMA_MODEL}
+        </Text>
+        <Text color="gray">
+          Context: {contextKB}K tokens | Max Steps: {config.MAX_STEPS} | Concurrent: {config.MAX_CONCURRENT_TASKS}
         </Text>
       </Box>
     </Box>

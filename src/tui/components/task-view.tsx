@@ -53,6 +53,9 @@ export const TaskView: React.FC<TaskViewProps> = ({ events }) => {
                   <Text color="red">{event.message}</Text>
                 </Box>
               );
+            case 'context_update':
+              // Handled by Dashboard component
+              return null;
             default:
               return null;
           }

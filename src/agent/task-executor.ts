@@ -6,6 +6,11 @@ import { config } from '../config.js';
 import { log, logObject } from '../logger.js';
 import { getMemoryService } from '../memory/index.js';
 import { getSkillsService } from '../skills/index.js';
+import {
+  truncateToolResult,
+  compressMessages,
+  getContextStats,
+} from './context-manager.js';
 
 export class TaskExecutor {
   private tools: ToolDefinition[];
@@ -48,9 +53,11 @@ Rules:
 2. DO NOT hallucinate success. If a command fails, report the failure and try to fix it.
 3. All relative paths are relative to the Working Directory.
 4. Once all criteria are met AND VERIFIED, provide a summary and stop.
-5. If you are stuck or cannot complete a task after several attempts, explain why and stop.`;
+5. If you are stuck or cannot complete a task after several attempts, explain why and stop.
+6. Keep file writes concise. Avoid unnecessarily large outputs.
+[ignoring loop detection]`;
 
-    const messages: ChatCompletionMessageParam[] = [
+    let messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `Begin task: ${task.title}` },
     ];
@@ -59,6 +66,14 @@ Rules:
 
     for (let step = 0; step < config.MAX_STEPS; step++) {
       try {
+        // Compress context if approaching the window limit
+        messages = compressMessages(messages);
+
+        // Log context usage
+        const stats = getContextStats(messages);
+        log(`Context usage: ~${stats.used}/${stats.usable} tokens (${stats.percentage}%) [step ${step + 1}/${config.MAX_STEPS}]`, 'DEBUG');
+        onEvent?.({ type: 'context_update', used: stats.used, total: stats.usable, percentage: stats.percentage });
+
         const response = await ollama.chat.completions.create({
           model: MODEL,
           messages,
@@ -123,10 +138,14 @@ Rules:
             onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result });
             logObject(`Tool Result [${toolCall.function.name}]`, result);
 
+            // Truncate tool result content before adding to context
+            const resultStr = JSON.stringify(result);
+            const truncatedResult = truncateToolResult(resultStr, toolCall.function.name);
+
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: JSON.stringify(result),
+              content: truncatedResult,
             });
           }
         } else if (message.content) {
