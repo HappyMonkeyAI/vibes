@@ -1,6 +1,7 @@
 import { Mission, Task, Milestone, OnEvent } from './types.js';
 import { TaskExecutor } from './task-executor.js';
 import { config } from '../config.js';
+import { log } from '../logger.js';
 
 export class Scheduler {
   private mission: Mission;
@@ -32,20 +33,24 @@ export class Scheduler {
     
     while (this.hasPendingTasks()) {
       const nextTasks = this.getReadyTasks();
+      const pendingCount = this.getAllTasks().filter(t => t.status === 'todo' || t.status === 'in_progress').length;
       
+      log(`Scheduler loop: ${pendingCount} pending, ${nextTasks.length} ready, ${this.runningTasks.size} running`, 'DEBUG');
+
       if (nextTasks.length === 0 && this.runningTasks.size === 0) {
-        // Potential deadlock or all remaining tasks have failed dependencies
+        log('Scheduler detected deadlock or completion: no ready tasks and nothing running.', 'WARN');
         break;
       }
 
       const availableSlots = config.MAX_CONCURRENT_TASKS - this.runningTasks.size;
       const tasksToStart = nextTasks.slice(0, availableSlots);
 
-      await Promise.all(tasksToStart.map(task => this.executeTask(task)));
-      
-      // Small delay to prevent tight loop if no tasks are ready
-      if (tasksToStart.length === 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      if (tasksToStart.length > 0) {
+        log(`Starting ${tasksToStart.length} tasks...`, 'INFO');
+        await Promise.all(tasksToStart.map(task => this.executeTask(task)));
+      } else {
+        // Wait for running tasks or small delay if blocked
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 
