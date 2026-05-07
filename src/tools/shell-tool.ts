@@ -101,10 +101,23 @@ export const shellTool: ToolDefinition = {
       if (stderr) detailedError += `\n\n[STDERR]:\n${stderr}`;
       if (stdout) detailedError += `\n\n[STDOUT]:\n${stdout}`;
 
+      // If we have output, it's a successful observation of a command result (even if exit code != 0)
+      if (stdout || stderr) {
+        return {
+          success: true,
+          data: { 
+            stdout, 
+            stderr, 
+            exitCode: error.code || 1,
+            message: error.message 
+          }
+        };
+      }
+
       return {
         success: false,
         error: detailedError,
-        data: { stdout, stderr },
+        data: { stdout, stderr, exitCode: error.code },
       };
     }
   },
