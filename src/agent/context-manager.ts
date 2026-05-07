@@ -1,9 +1,7 @@
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { config } from '../config.js';
 import { log } from '../logger.js';
-
-// Rough token estimation: ~4 chars per token for English text
-const CHARS_PER_TOKEN = 4;
+import { encode, decode } from 'gpt-tokenizer';
 
 // Reserve budget for the model's response and tool definitions
 const RESPONSE_RESERVE_TOKENS = 4096;
@@ -13,7 +11,7 @@ const TOOL_SCHEMA_RESERVE_TOKENS = 2048;
  * Estimates the token count of a string.
  */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
+  return encode(text).length;
 }
 
 /**
@@ -55,12 +53,13 @@ export function getUsableBudget(): number {
  * Truncates a string to fit within a max token budget, appending a notice.
  */
 export function truncateToTokenBudget(text: string, maxTokens: number): string {
-  const currentTokens = estimateTokens(text);
-  if (currentTokens <= maxTokens) return text;
+  const tokens = encode(text);
+  if (tokens.length <= maxTokens) return text;
 
-  const maxChars = maxTokens * CHARS_PER_TOKEN;
-  const truncNotice = `\n\n[... truncated ${currentTokens - maxTokens} tokens to fit context window]`;
-  return text.slice(0, maxChars - truncNotice.length) + truncNotice;
+  const truncatedTokens = tokens.slice(0, maxTokens - 20); // Reserve space for notice
+  const truncatedText = decode(truncatedTokens);
+  const truncNotice = `\n\n[... truncated ${tokens.length - maxTokens} tokens to fit context window]`;
+  return truncatedText + truncNotice;
 }
 
 /**

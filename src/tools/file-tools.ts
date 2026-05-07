@@ -79,3 +79,76 @@ export const globTool: ToolDefinition = {
     }
   },
 };
+
+export const fileOutlineTool: ToolDefinition = {
+  name: 'file_outline',
+  description: 'Get a map of classes, functions, and definitions in a file with line numbers.',
+  parameters: z.object({
+    path: z.string(),
+  }),
+  execute: async ({ path: filePath }, context): Promise<ToolResult> => {
+    try {
+      const fullPath = resolvePath(context?.workspaceRoot || process.cwd(), filePath);
+      const content = await fs.readFile(fullPath, 'utf8');
+      const lines = content.split('\n');
+      const outline: string[] = [];
+
+      // Basic regex for JS/TS/Python definitions
+      const patterns = [
+        { regex: /^(?:export\s+)?class\s+(\w+)/, label: 'CLASS' },
+        { regex: /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/, label: 'FUNC' },
+        { regex: /^(?:export\s+)?const\s+(\w+)\s*=\s*(?:\([^)]*\)|async\s+)?\s*=>/, label: 'ARROW' },
+        { regex: /^\s*(?:private|public|protected)?\s*(?:async\s+)?(\w+)\s*\([^)]*\)\s*(?::|{)/, label: 'METHOD' },
+        { regex: /^def\s+(\w+)\s*\(/, label: 'PY_FUNC' },
+        { regex: /^class\s+(\w+)(?:\(.*\))?:/, label: 'PY_CLASS' },
+      ];
+
+      lines.forEach((line, index) => {
+        for (const p of patterns) {
+          const match = line.match(p.regex);
+          if (match) {
+            outline.push(`L${index + 1}: [${p.label}] ${match[1]} | ${line.trim().slice(0, 50)}`);
+            break;
+          }
+        }
+      });
+
+      return { success: true, data: outline.length > 0 ? outline.join('\n') : 'No definitions found.' };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  },
+};
+
+export const readLinesTool: ToolDefinition = {
+  name: 'read_lines',
+  description: 'Read a specific range of lines from a file.',
+  parameters: z.object({
+    path: z.string(),
+    start: z.number().describe('Start line number (1-indexed)'),
+    end: z.number().describe('End line number (1-indexed, inclusive)'),
+  }),
+  execute: async ({ path: filePath, start, end }, context): Promise<ToolResult> => {
+    try {
+      const fullPath = resolvePath(context?.workspaceRoot || process.cwd(), filePath);
+      const content = await fs.readFile(fullPath, 'utf8');
+      const lines = content.split('\n');
+      
+      const startIdx = Math.max(0, start - 1);
+      const endIdx = Math.min(lines.length, end);
+      
+      const requestedLines = lines.slice(startIdx, endIdx);
+      return { 
+        success: true, 
+        data: requestedLines.join('\n'),
+        metadata: {
+          total_lines: lines.length,
+          start_line: startIdx + 1,
+          end_line: endIdx,
+        }
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  },
+};

@@ -16,6 +16,7 @@
     "chalk": "^5.4.1",
     "dotenv": "^16.4.7",
     "glob": "^11.0.1",
+    "gpt-tokenizer": "^3.4.0",
     "ink": "^6.0.0",
     "ink-scrollable-list": "^1.5.1",
     "mem0ai": "^2.0.0",

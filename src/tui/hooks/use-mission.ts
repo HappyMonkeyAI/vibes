@@ -3,7 +3,7 @@ import { Mission, ExecutionEvent } from '../../agent/types.js';
 import { MissionPlanner } from '../../agent/mission-planner.js';
 import { TaskExecutor } from '../../agent/task-executor.js';
 import { Scheduler, InterventionResolution } from '../../agent/scheduler.js';
-import { listDirTool, readFileTool, writeFileTool, globTool } from '../../tools/file-tools.js';
+import { listDirTool, readFileTool, writeFileTool, globTool, fileOutlineTool, readLinesTool } from '../../tools/file-tools.js';
 import { shellTool } from '../../tools/shell-tool.js';
 import { editFileTool } from '../../tools/file-edit.js';
 import { config } from '../../config.js';
@@ -59,7 +59,16 @@ export const useMission = () => {
     setIsExecuting(true);
 
     try {
-      const tools = [listDirTool, readFileTool, writeFileTool, editFileTool, globTool, shellTool];
+      const tools = [
+        listDirTool, 
+        readFileTool, 
+        writeFileTool, 
+        editFileTool, 
+        globTool, 
+        shellTool,
+        fileOutlineTool,
+        readLinesTool
+      ];
       const executor = new TaskExecutor(tools);
 
       const onEvent = (event: ExecutionEvent) => {

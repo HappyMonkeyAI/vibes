@@ -45,6 +45,7 @@ export interface ToolResult {
   success: boolean;
   error?: string;
   data?: any;
+  metadata?: any;
 }
 
 export type ExecutionEvent = 

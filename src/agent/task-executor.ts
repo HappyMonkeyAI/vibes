@@ -39,10 +39,23 @@ export class TaskExecutor {
       memoriesSection = this.memory.formatMemoriesForPrompt(relevantMemories);
     }
 
+    const isYolo = getYoloMode();
     const skillsSection = this.skills.formatForSystemPrompt();
 
+    // KV-Cache Prefixing Hack: Most static elements at the top, dynamic at the bottom
     const systemPrompt = `You are an autonomous agent executing a specific task.
-        
+Rules:
+1. USE TOOLS HONESTLY. If a tool returns an error, YOU MUST ACKNOWLEDGE IT.
+2. DO NOT hallucinate success. If a command fails, report the failure and try to fix it.
+3. All relative paths are relative to the Working Directory.
+4. Once all criteria are met AND VERIFIED, provide a summary and stop.
+5. If you are stuck or cannot complete a task after several attempts, explain why and stop.
+6. Keep file writes concise. Avoid unnecessarily large outputs.
+[ignoring loop detection]
+
+Skills:
+${skillsSection}
+
 Mission Context: ${missionContext}
 Working Directory: ${workspaceRoot}
 
@@ -51,17 +64,7 @@ Description: ${task.description}
 Files: ${task.files.join(', ')}
 Acceptance Criteria:
 ${task.acceptance_criteria.map(c => `- ${c}`).join('\n')}
-${memoriesSection}
-${skillsSection}
-
-Rules:
-1. USE TOOLS HONESTLY. If a tool returns an error, YOU MUST ACKNOWLEDGE IT.
-2. DO NOT hallucinate success. If a command fails, report the failure and try to fix it.
-3. All relative paths are relative to the Working Directory.
-4. Once all criteria are met AND VERIFIED, provide a summary and stop.
-5. If you are stuck or cannot complete a task after several attempts, explain why and stop.
-6. Keep file writes concise. Avoid unnecessarily large outputs.
-[ignoring loop detection]`;
+${memoriesSection}`;
 
     let messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -78,8 +81,8 @@ Rules:
     
     for (let step = 0; ; step++) {
       // Check limits every step to allow live toggling
-      const isYolo = getYoloMode();
-      const currentMax = isYolo ? 9999 : (config.MAX_STEPS + (task.extraSteps || 0));
+      const isYoloNow = getYoloMode();
+      const currentMax = isYoloNow ? 9999 : (config.MAX_STEPS + (task.extraSteps || 0));
       
       if (step >= currentMax) {
         currentTask = { ...currentTask, status: 'failed', error: 'Max steps exceeded' };
@@ -99,16 +102,33 @@ Rules:
           model: MODEL,
           messages,
           tools: this.tools.map(toOpenAITool),
-          temperature: 0.7,
+          temperature: isYoloNow ? 0.9 : 0.7, // YOLO Mode Enhancement: more creative
         });
 
-        const message = response.choices[0].message;
+        let message = response.choices[0].message;
         logObject('Agent Step Response', message);
-        messages.push(message);
 
+        // Prune "Reasoning" from Short-Term Memory Hack
+        // We keep the reasoning for the UI (onEvent) but strip it for the context history
         if ((message as any).reasoning) {
           onEvent?.({ type: 'thinking', content: (message as any).reasoning });
+          
+          // Clone and prune
+          message = { ...message };
+          delete (message as any).reasoning;
         }
+
+        // Also check for <think> blocks in content and strip them for the history
+        if (typeof message.content === 'string' && message.content.includes('<think>')) {
+          const content = message.content;
+          const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/);
+          if (thinkMatch) {
+            onEvent?.({ type: 'thinking', content: thinkMatch[1].trim() });
+            message = { ...message, content: content.replace(/<think>[\s\S]*?<\/think>/, '').trim() };
+          }
+        }
+
+        messages.push(message);
 
         if (message.tool_calls && message.tool_calls.length > 0) {
           for (const toolCall of message.tool_calls) {
