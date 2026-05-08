@@ -73,8 +73,9 @@ Constraints:
 3. Keep descriptions very short.
 4. Focus on the primary goal first.
 5. If a task is particularly complex (e.g. refactoring core logic, multi-file changes), suggest a more powerful model if available (e.g. ${config.REVIEWER_MODEL}).
-6. No extra text or preamble.
-6. STOP when the acceptance criteria are met. Do not add extra polish, build pipelines, or deployment steps unless explicitly requested.
+6. **STRICT MODEL NAMING**: If you specify a model name, you MUST use the EXACT string provided above. DO NOT shorten "google/gemma-4-e4b" to "gemma-4".
+7. No extra text or preamble.
+8. STOP when the acceptance criteria are met. Do not add extra polish, build pipelines, or deployment steps unless explicitly requested.
 
 STRICT BOUNDARIES — plans MUST NOT include tasks that:
 - Generate SSL/TLS certificates, SSH keys, API keys, secrets, or any credentials.
