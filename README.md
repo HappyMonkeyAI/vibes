@@ -44,7 +44,23 @@ To switch models, simply update `OLLAMA_MODEL` and `OLLAMA_BASE_URL` in your `.e
 - **Ollama**: Access to an Ollama instance. While Vibes is optimized for **Gemma4 26B** (`VladimirGav/gemma4-26b-16GB-VRAM:latest`), it is compatible with any model that supports OpenAI-style tool calling (e.g., Llama 3.1, Mistral, DeepSeek) by simply updating the `.env` configuration.
 
 
-### Installation
+### 🚀 Quick Install (Linux)
+
+The easiest way to install Vibes and set up the global `vibes` command is using our automated installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SPhillips1337/Vibes/main/install.sh | bash
+```
+
+This script will:
+- Clone the repository to `~/Vibes`.
+- Install dependencies and build the project.
+- Add a `vibes` function to your shell configuration (`.bashrc`, `.zshrc`).
+- Enable **Automatic Workspace Detection** (Vibes will default to the directory you launched it from).
+
+---
+
+### Manual Installation
 
 1. **Clone the repository**:
    ```bash
@@ -58,7 +74,7 @@ To switch models, simply update `OLLAMA_MODEL` and `OLLAMA_BASE_URL` in your `.e
    ```
 
 3. **Configure environment**:
-   Create a `.env` file in the root directory (see `.env.example` if available):
+   Create a `.env` file in the root directory:
    ```env
    OLLAMA_BASE_URL=https://your-ollama-endpoint/v1
    OLLAMA_MODEL=VladimirGav/gemma4-26b-16GB-VRAM:latest
@@ -66,8 +82,19 @@ To switch models, simply update `OLLAMA_MODEL` and `OLLAMA_BASE_URL` in your `.e
    CONTEXT_WINDOW=32768
    ```
 
+---
+
 ### Running Vibes
 
+#### ⚡ Using the Global Command
+If you used the quick installer, you can launch Vibes from **any directory** on your system:
+
+```bash
+vibes
+```
+*Note: Vibes will automatically detect your current path and set it as the workspace root.*
+
+#### 🛠️ Development & Manual Execution
 - **Development Mode** (with hot reload):
   ```bash
   npm run dev
@@ -79,7 +106,7 @@ To switch models, simply update `OLLAMA_MODEL` and `OLLAMA_BASE_URL` in your `.e
   npm start
   ```
 
-- **Direct Execution** (using tsx):
+- **Direct Execution**:
   ```bash
   tsx src/index.tsx
   ```
