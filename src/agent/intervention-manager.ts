@@ -1,4 +1,4 @@
-import { ollama, MODEL } from '../ollama-client.js';
+import { getOllamaClient, getModel } from '../ollama-client.js';
 import { Task, Mission } from './types.js';
 import { log } from '../logger.js';
 
@@ -18,8 +18,8 @@ Your Goal: Briefly explain what went wrong and ask a CLEAR question to the user 
 Output ONLY the question text for the user. Keep it friendly and concise.`;
 
     try {
-      const response = await ollama.chat.completions.create({
-        model: MODEL,
+      const response = await getOllamaClient().chat.completions.create({
+        model: getModel(),
         messages: [
           { role: 'system', content: prompt },
           { role: 'user', content: 'Formulate the question.' }

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { ollama, MODEL } from '../ollama-client.js';
+import { getOllamaClient, getModel } from '../ollama-client.js';
 import { config } from '../config.js';
 import { Mission, MissionSchema } from './types.js';
 import { logObject, log } from '../logger.js';
@@ -89,8 +89,8 @@ STRICT BOUNDARIES — plans MUST NOT include tasks that:
 
 A request for a "web app" means: HTML, CSS, and JavaScript files only. Not a build pipeline, not a service worker, not a deployment config — unless explicitly asked.`;
 
-    const response = await ollama.chat.completions.create({
-      model: MODEL,
+    const response = await getOllamaClient().chat.completions.create({
+      model: getModel(),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Please plan a mission for the following request:\n\n<request>\n${description}\n</request>` },

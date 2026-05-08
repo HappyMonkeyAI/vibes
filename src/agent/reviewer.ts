@@ -1,4 +1,4 @@
-import { ollama } from '../ollama-client.js';
+import { getOllamaClient } from '../ollama-client.js';
 import { Task, Mission } from './types.js';
 import { log } from '../logger.js';
 import { config } from '../config.js';
@@ -32,7 +32,7 @@ Task Output:
 ${task.output || 'No output provided.'}`;
 
     try {
-      const response = await ollama.chat.completions.create({
+      const response = await getOllamaClient().chat.completions.create({
         model: config.REVIEWER_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },

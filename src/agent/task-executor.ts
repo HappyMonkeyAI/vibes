@@ -1,5 +1,5 @@
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import { ollama, MODEL } from '../ollama-client.js';
+import { getOllamaClient, getModel } from '../ollama-client.js';
 import { Task, ToolResult, OnEvent } from './types.js';
 import { ToolDefinition, toOpenAITool } from '../tools/index.js';
 import { config } from '../config.js';
@@ -121,8 +121,8 @@ ${memoriesSection}`;
         log(`Context usage: ~${stats.used}/${stats.usable} tokens (${stats.percentage}%) [step ${step + 1}/${currentMax}]`, 'DEBUG');
         onEvent?.({ type: 'context_update', used: stats.used, total: stats.usable, percentage: stats.percentage });
 
-        const taskModel = task.model || MODEL;
-        const response = await ollama.chat.completions.create({
+        const taskModel = task.model || getModel();
+        const response = await getOllamaClient().chat.completions.create({
           model: taskModel,
           messages,
           tools: this.tools.map(toOpenAITool),
