@@ -218,7 +218,10 @@ ${memoriesSection}`;
                 if (parseResult.success) {
                   validatedArgs = parseResult.data;
                 } else {
-                  result = { success: false, error: `Invalid tool arguments: ${parseResult.error.message}` };
+                  result = { 
+                    success: false, 
+                    error: `[VALIDATION_ERROR] Invalid tool arguments: ${parseResult.error.message}\nRETRY_HINT: Review the tool schema carefully and ensure you provide exactly the required types (e.g. array instead of string). Please self-correct and try again.` 
+                  };
                   onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result });
                   messages.push({
                     role: 'tool',

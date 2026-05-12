@@ -82,8 +82,9 @@ export const shellTool: ToolDefinition = {
   parameters: z.object({
     command: z.string(),
     timeout: z.number().default(30000),
+    failOnError: z.boolean().default(true).describe("If true, non-zero exit codes fail the tool call. Set to false if you expect non-zero exit codes (e.g. grep finding no matches)."),
   }),
-  execute: async ({ command, timeout }, context): Promise<ToolResult> => {
+  execute: async ({ command, timeout, failOnError }, context): Promise<ToolResult> => {
     // Security check before execution
     const blockReason = checkCommand(command);
     if (blockReason) {
@@ -112,8 +113,8 @@ export const shellTool: ToolDefinition = {
       if (stderr) detailedError += `\n\n[STDERR]:\n${stderr}`;
       if (stdout) detailedError += `\n\n[STDOUT]:\n${stdout}`;
 
-      // If we have output, it's a successful observation of a command result (even if exit code != 0)
-      if (stdout || stderr) {
+      // If we have output or failOnError is bypassed, it's a successful observation of a command result
+      if (!failOnError || stdout || stderr) {
         return {
           success: true,
           data: { 
