@@ -64,6 +64,12 @@ update_env_var() {
 }
 
 configure_env() {
+    # Guard: only run in interactive mode
+    if [ ! -t 0 ]; then
+        echo "⚠️  Skipping interactive configuration (non-interactive mode)"
+        return
+    fi
+
     if [ ! -f "$ENV_FILE" ]; then
         if [ -f "$ENV_EXAMPLE" ]; then
             cp "$ENV_EXAMPLE" "$ENV_FILE"
