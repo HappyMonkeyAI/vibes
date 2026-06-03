@@ -132,8 +132,7 @@ export class Scheduler {
     try {
       const missionContext = `Mission: ${this.mission.title}\nDescription: ${this.mission.description}`;
       const updatedTask = await this.executor.executeTask(task, missionContext, this.mission.workspace_root, this.onEvent, this.getYoloMode);
-      
-      updatedTask.userGuidance = undefined;
+
       this.updateTaskInMission(updatedTask);
 
       if (updatedTask.status === 'done') {

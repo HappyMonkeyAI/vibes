@@ -1,10 +1,11 @@
 {
-  "OLLAMA_MODEL": "google/gemma-4-e4b",
-  "PLANNER_MODEL": "qwen3.6-27b-4bpw-16gb-vram",
-  "CONTEXT_WINDOW": 131072,
+  "OLLAMA_MODEL": "qwen3.5-9b-deepseek-v4-flash",
+  "PLANNER_MODEL": "qwen3.5-2b-kimi-and-opus-distillation-i1",
+  "CONTEXT_WINDOW": 245000,
   "ENABLE_REVIEWER": true,
   "MAX_CONCURRENT_TASKS": 1,
   "MEMORY_ENABLED": false,
   "CODEX_ENABLED": true,
-  "CODEX_TOP_K": 3
+  "CODEX_TOP_K": 3,
+  "REVIEWER_MODEL": "qwen3.5-9b-deepseek-v4-flash"
 }
