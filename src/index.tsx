@@ -37,11 +37,18 @@ const App = () => {
   const [workspace, setWorkspace] = React.useState(process.env.VIBES_LAUNCH_DIR || process.cwd());
   const [view, setView] = React.useState<'dashboard' | 'mission' | 'task' | 'trace' | 'settings' | 'history' | 'log'>('dashboard');
   const [focusIndex, setFocusIndex] = React.useState(0);
+  const [isCodexEnabled, setIsCodexEnabled] = React.useState(settings.CODEX_ENABLED);
 
   const isIdle = !mission && !isPlanning && !pendingMission;
 
   useInput((input, key) => {
     if (key.ctrl && input === 'q') exit();
+    if (key.meta && input === 'c') {
+      const newVal = !isCodexEnabled;
+      setIsCodexEnabled(newVal);
+      saveSettings({ CODEX_ENABLED: newVal });
+      return;
+    }
 
     // Update notification keys (priority, use Alt to avoid typing conflict)
     if (key.meta && input === 'u' && updateInfo?.available && !updateDismissed && updateStatus === 'idle') {
@@ -51,6 +58,32 @@ const App = () => {
     if (key.meta && input === 'x' && updateInfo?.available && !updateDismissed) {
       dismissUpdate();
       return;
+    }
+
+    // Suppress nav/toggle keys while modal views or update process are active
+    if (pendingMission || pendingIntervention || updateStatus === 'updating') return;
+
+    // Handle global system navigation shortcuts (meta/Alt keys) first to prevent input leakage
+    if (key.meta) {
+      if (input === 'd') { setView('dashboard'); return; }
+      if (input === 'm') { setView('mission'); return; }
+      if (input === 't') { setView('trace'); return; }
+      if (key.shift && input === 't') { setView('task'); return; }
+      if (input === 's') { setView(prev => prev === 'settings' ? 'dashboard' : 'settings'); return; }
+      if (input === 'h') { setView(prev => prev === 'history' ? 'dashboard' : 'history'); return; }
+      if (input === 'l') { setView(prev => prev === 'log' ? 'dashboard' : 'log'); return; }
+      if (input === 'y') { toggleYoloMode(); return; }
+      if (input === 'n') {
+        resetMission();
+        setView('dashboard');
+        setFocusIndex(1);
+        return;
+      }
+      if (input === 'z') {
+        undoMission();
+        setView('dashboard');
+        return;
+      }
     }
 
     // Suppress other global shortcuts while typing in a text field
@@ -76,31 +109,6 @@ const App = () => {
       }
       return;
     }
-
-    // Suppress nav/toggle keys while modal views or update process are active
-    if (pendingMission || pendingIntervention || updateStatus === 'updating') return;
-
-    if (key.meta) {
-      if (input === 'd') { setView('dashboard'); return; }
-      if (input === 'm') { setView('mission'); return; }
-      if (input === 't') { setView('trace'); return; }
-      if (key.shift && input === 't') { setView('task'); return; }
-      if (input === 's') { setView(prev => prev === 'settings' ? 'dashboard' : 'settings'); return; }
-      if (input === 'h') { setView(prev => prev === 'history' ? 'dashboard' : 'history'); return; }
-      if (input === 'l') { setView(prev => prev === 'log' ? 'dashboard' : 'log'); return; }
-      if (input === 'y') { toggleYoloMode(); return; }
-      if (input === 'n') {
-        resetMission();
-        setView('dashboard');
-        setFocusIndex(1);
-        return;
-      }
-      if (input === 'z') {
-        undoMission();
-        setView('dashboard');
-        return;
-      }
-    }
   });
 
   const handleSubmit = (val: string) => {
@@ -122,21 +130,10 @@ const App = () => {
         <Box gap={2}>
           {!pendingMission && !pendingIntervention && !isIdle && (
             <>
-              <Text color={view === 'dashboard' ? 'white' : 'blue'}>[Alt+D] Dash</Text>
-              <Text color={view === 'mission' ? 'white' : 'blue'}>[Alt+M] Mission</Text>
-              <Text color={view === 'trace' ? 'white' : 'blue'}>[Alt+T] Trace</Text>
-              <Text color={view === 'task' ? 'white' : 'blue'}>[Alt+⇧T] Task</Text>
-              <Text color={view === 'settings' ? 'white' : 'blue'}>[Alt+S] Settings</Text>
-              <Text color={view === 'log' ? 'white' : 'blue'}>[Alt+L] Logs</Text>
               <Text color="green">[Alt+N] New</Text>
               <Text color="red">[Alt+Z] Undo</Text>
+              <Text color={isCodexEnabled ? 'green' : 'gray'}>[Alt+C] Codex</Text>
               <Text color={isYoloMode ? 'yellow' : 'blue'} bold={isYoloMode}>[Alt+Y] YOLO</Text>
-            </>
-          )}
-          {isIdle && (
-            <>
-              <Text color={view === 'history' ? 'white' : 'blue'}>[Alt+H] History</Text>
-              <Text color={view === 'settings' ? 'white' : 'blue'}>[Alt+S] Settings</Text>
             </>
           )}
           <Text color="red">[Ctrl+Q] Quit</Text>
@@ -304,6 +301,27 @@ const App = () => {
           </Box>
         )}
       </Box>
+
+      {/* Navigation */}
+      {!pendingMission && !pendingIntervention && (
+        <Box borderStyle="single" borderColor="blue" paddingX={1} justifyContent="center" gap={2} marginTop={1}>
+          {!isIdle ? (
+            <>
+              <Text color={view === 'dashboard' ? 'white' : 'blue'}>[Alt+D] Dash</Text>
+              <Text color={view === 'mission' ? 'white' : 'blue'}>[Alt+M] Mission</Text>
+              <Text color={view === 'trace' ? 'white' : 'blue'}>[Alt+T] Trace</Text>
+              <Text color={view === 'task' ? 'white' : 'blue'}>[Alt+⇧T] Task</Text>
+              <Text color={view === 'settings' ? 'white' : 'blue'}>[Alt+S] Settings</Text>
+              <Text color={view === 'log' ? 'white' : 'blue'}>[Alt+L] Logs</Text>
+            </>
+          ) : (
+            <>
+              <Text color={view === 'history' ? 'white' : 'blue'}>[Alt+H] History</Text>
+              <Text color={view === 'settings' ? 'white' : 'blue'}>[Alt+S] Settings</Text>
+            </>
+          )}
+        </Box>
+      )}
 
       {/* Footer */}
       <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">

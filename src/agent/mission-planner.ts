@@ -60,7 +60,8 @@ Structure:
           "description": "Actionable steps",
           "files": ["file/path"],
           "acceptance_criteria": ["criteria 1", "criteria 2"],
-          "use_reviewer_model": true
+          "use_reviewer_model": true,
+          "type": "code"
         }
       ]
     }
@@ -73,7 +74,8 @@ Constraints:
 3. Keep descriptions very short.
 4. Focus on the primary goal first.
 5. If a task is particularly complex (e.g. refactoring core logic, multi-file changes), set "use_reviewer_model" to true.
-6. No extra text or preamble.
+6. Classify each task's "type": "code" (writing code), "config" (changing configs, package.json, env files), or "research" (analysis, reading files, gathering info). Only "code" tasks trigger automated review.
+7. No extra text or preamble.
 7. STOP when the acceptance criteria are met. Do not add extra polish, build pipelines, or deployment steps unless explicitly requested.
 8. **STRICT BOUNDARIES** — plans MUST NOT include tasks that:
 - Generate SSL/TLS certificates, SSH keys, API keys, secrets, or any credentials.
@@ -87,8 +89,9 @@ Constraints:
 
 9. A request for a "web app" means: HTML, CSS, and JavaScript files only. Not a build pipeline, not a service worker, not a deployment config — unless explicitly asked.`;
 
+    const plannerModel = config.PLANNER_MODEL || getModel();
     const response = await getOllamaClient().chat.completions.create({
-      model: getModel(),
+      model: plannerModel,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Please plan a mission for the following request:\n\n<request>\n${description}\n</request>` },

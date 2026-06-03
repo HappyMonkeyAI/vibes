@@ -33,10 +33,17 @@ Write-Host "Git found: $($git.Source)" -ForegroundColor Green
 # 3. Clone or Update Repo
 if (Test-Path -LiteralPath $InstallDir) {
     Write-Host "Project directory already exists at $InstallDir. Updating..." -ForegroundColor Yellow
-    Push-Location -LiteralPath $InstallDir
+    Push-Location -LiteralPath $InstallDir -ErrorAction SilentlyContinue
+    if (-not $?) {
+        Write-Host "ERROR: Failed to enter directory $InstallDir" -ForegroundColor Red
+        exit 1
+    }
     try {
         if (Test-Path -LiteralPath ".git") {
-            $null = git pull 2>&1
+            & {
+                $ErrorActionPreference = 'Continue'
+                $null = git pull
+            }
             if ($LASTEXITCODE -ne 0) {
                 Write-Host 'Warning: Could not pull latest changes. Continuing...' -ForegroundColor Yellow
             }
@@ -46,18 +53,28 @@ if (Test-Path -LiteralPath $InstallDir) {
     }
 } else {
     Write-Host "Cloning Vibes to $InstallDir ..." -ForegroundColor Green
-    git clone $RepoUrl $InstallDir
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host 'ERROR: Failed to clone repository.' -ForegroundColor Red
+    & {
+        $ErrorActionPreference = 'Continue'
+        git clone $RepoUrl $InstallDir
+    }
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $InstallDir)) {
+        Write-Host 'ERROR: Failed to clone repository or directory was not created.' -ForegroundColor Red
         exit 1
     }
 }
 
 # 4. Install Dependencies
 Write-Host 'Installing dependencies...' -ForegroundColor Green
-Push-Location -LiteralPath $InstallDir
+Push-Location -LiteralPath $InstallDir -ErrorAction SilentlyContinue
+if (-not $?) {
+    Write-Host "ERROR: Failed to enter directory $InstallDir to install dependencies." -ForegroundColor Red
+    exit 1
+}
 try {
-    npm install
+    & {
+        $ErrorActionPreference = 'Continue'
+        npm install
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host 'ERROR: npm install failed.' -ForegroundColor Red
         exit 1
@@ -65,13 +82,188 @@ try {
 
     # 5. Build Project
     Write-Host 'Building project...' -ForegroundColor Green
-    npm run build
+    & {
+        $ErrorActionPreference = 'Continue'
+        npm run build
+    }
     if ($LASTEXITCODE -ne 0) {
         Write-Host 'ERROR: Build failed.' -ForegroundColor Red
         exit 1
     }
 } finally {
     Pop-Location
+}
+
+# 5.5 Setup LLM Configuration
+$EnvFile = Join-Path $InstallDir ".env"
+$EnvExample = Join-Path $InstallDir ".env.example"
+
+function Get-ExistingVal {
+    param([string]$varName)
+    try {
+        if (Test-Path -LiteralPath $EnvFile) {
+            $line = Get-Content -LiteralPath $EnvFile -ErrorAction SilentlyContinue | Where-Object { $_ -match "^${varName}=" }
+            if ($line) {
+                return ($line -split '=', 2)[1]
+            }
+        }
+    } catch {
+        # Safe fallback
+    }
+    try {
+        if (Test-Path -LiteralPath $EnvExample) {
+            $line = Get-Content -LiteralPath $EnvExample -ErrorAction SilentlyContinue | Where-Object { $_ -match "^${varName}=" }
+            if ($line) {
+                return ($line -split '=', 2)[1]
+            }
+        }
+    } catch {
+        # Safe fallback
+    }
+    return ""
+}
+
+function Update-EnvVar {
+    param([string]$varName, [string]$value)
+    try {
+        if (Test-Path -LiteralPath $EnvFile) {
+            $content = Get-Content -LiteralPath $EnvFile -ErrorAction SilentlyContinue
+            if (-not $content) {
+                Add-Content -LiteralPath $EnvFile -Value "${varName}=${value}" -ErrorAction SilentlyContinue
+                return
+            }
+            $found = $false
+            $contentArray = @($content)
+            for ($i = 0; $i -lt $contentArray.Length; $i++) {
+                if ($contentArray[$i] -match "^${varName}=") {
+                    $contentArray[$i] = "${varName}=${value}"
+                    $found = $true
+                    break
+                }
+            }
+            if (-not $found) {
+                $contentArray += "${varName}=${value}"
+            }
+            Set-Content -LiteralPath $EnvFile -Value $contentArray -ErrorAction SilentlyContinue
+        } else {
+            Add-Content -LiteralPath $EnvFile -Value "${varName}=${value}" -ErrorAction SilentlyContinue
+        }
+    } catch {
+        Write-Host "Warning: Failed to update LLM configuration variable $varName in .env: $_" -ForegroundColor Yellow
+    }
+}
+
+function Prompt-Bool {
+    param([string]$promptText, [string]$defaultVal)
+    $defaultYn = 'y'
+    if ($defaultVal -eq 'false' -or $defaultVal -eq 'disabled') {
+        $defaultYn = 'n'
+    }
+
+    $inputYn = Read-Host "❓ ${promptText} (y/n) [$defaultYn]"
+    if ([string]::IsNullOrWhiteSpace($inputYn)) { $inputYn = $defaultYn }
+
+    if ($inputYn -match '^[Yy]$') {
+        if ($defaultVal -eq 'enabled' -or $defaultVal -eq 'disabled') {
+            return 'enabled'
+        } else {
+            return 'true'
+        }
+    } else {
+        if ($defaultVal -eq 'enabled' -or $defaultVal -eq 'disabled') {
+            return 'disabled'
+        } else {
+            return 'false'
+        }
+    }
+}
+
+function Configure-Env {
+    if (-not [Environment]::UserInteractive) {
+        Write-Host '⚠️  Skipping interactive configuration (non-interactive mode)' -ForegroundColor Yellow
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $EnvFile)) {
+        if (Test-Path -LiteralPath $EnvExample) {
+            Copy-Item -LiteralPath $EnvExample -Destination $EnvFile
+        } else {
+            New-Item -ItemType File -Path $EnvFile -Force | Out-Null
+        }
+    }
+
+    Write-Host '⚙️  LLM Provider Configuration' -ForegroundColor Cyan
+    
+    $defaultUrl = Get-ExistingVal 'OLLAMA_BASE_URL'
+    $defaultModel = Get-ExistingVal 'OLLAMA_MODEL'
+    $defaultKey = Get-ExistingVal 'OLLAMA_API_KEY'
+
+    $inputUrl = Read-Host "Enter Ollama Base URL [$defaultUrl]"
+    if ([string]::IsNullOrWhiteSpace($inputUrl)) { $inputUrl = $defaultUrl }
+
+    $inputModel = Read-Host "Enter Ollama Model [$defaultModel]"
+    if ([string]::IsNullOrWhiteSpace($inputModel)) { $inputModel = $defaultModel }
+
+    $inputKey = Read-Host "Enter Ollama API Key [$defaultKey]"
+    if ([string]::IsNullOrWhiteSpace($inputKey)) { $inputKey = $defaultKey }
+
+    Update-EnvVar 'OLLAMA_BASE_URL' $inputUrl
+    Update-EnvVar 'OLLAMA_MODEL' $inputModel
+    Update-EnvVar 'OLLAMA_API_KEY' $inputKey
+
+    Write-Host '⚙️  Agent Behavior & Execution Configuration' -ForegroundColor Cyan
+
+    $defaultContext = Get-ExistingVal 'CONTEXT_WINDOW'
+    if ([string]::IsNullOrWhiteSpace($defaultContext)) { $defaultContext = '64000' }
+    $inputContext = Read-Host "Enter Context Window Size (tokens) [$defaultContext]"
+    if ([string]::IsNullOrWhiteSpace($inputContext)) { $inputContext = $defaultContext }
+    Update-EnvVar 'CONTEXT_WINDOW' $inputContext
+
+    $defaultSteps = Get-ExistingVal 'MAX_STEPS'
+    if ([string]::IsNullOrWhiteSpace($defaultSteps)) { $defaultSteps = '50' }
+    $inputSteps = Read-Host "Enter Max Steps per task [$defaultSteps]"
+    if ([string]::IsNullOrWhiteSpace($inputSteps)) { $inputSteps = $defaultSteps }
+    Update-EnvVar 'MAX_STEPS' $inputSteps
+
+    $defaultThinking = Get-ExistingVal 'THINKING_MODE'
+    if ([string]::IsNullOrWhiteSpace($defaultThinking)) { $defaultThinking = 'enabled' }
+    $inputThinking = Prompt-Bool 'Enable Thinking Mode?' $defaultThinking
+    Update-EnvVar 'THINKING_MODE' $inputThinking
+
+    $defaultReviewer = Get-ExistingVal 'ENABLE_REVIEWER'
+    if ([string]::IsNullOrWhiteSpace($defaultReviewer)) { $defaultReviewer = 'true' }
+    $inputReviewer = Prompt-Bool 'Enable Reviewer Swarm?' $defaultReviewer
+    Update-EnvVar 'ENABLE_REVIEWER' $inputReviewer
+
+    $defaultMemory = Get-ExistingVal 'MEMORY_ENABLED'
+    if ([string]::IsNullOrWhiteSpace($defaultMemory)) { $defaultMemory = 'true' }
+    $inputMemory = Prompt-Bool 'Enable Long-Term Memory?' $defaultMemory
+    Update-EnvVar 'MEMORY_ENABLED' $inputMemory
+
+    $defaultMultiagent = Get-ExistingVal 'MULTI_AGENT_ENABLED'
+    if ([string]::IsNullOrWhiteSpace($defaultMultiagent)) { $defaultMultiagent = 'false' }
+    $inputMultiagent = Prompt-Bool 'Enable Multi-Agent Mode?' $defaultMultiagent
+    Update-EnvVar 'MULTI_AGENT_ENABLED' $inputMultiagent
+    
+    Write-Host "✅ Configuration updated in $EnvFile" -ForegroundColor Green
+}
+
+if ([Environment]::UserInteractive) {
+    Write-Host ''
+    $configureNow = Read-Host '❓ Would you like to configure your LLM settings now? (y/n) [y]'
+    if ([string]::IsNullOrWhiteSpace($configureNow)) { $configureNow = 'y' }
+    if ($configureNow -match '^[Yy]$') {
+        Configure-Env
+    } else {
+        if (-not (Test-Path -LiteralPath $EnvFile) -and (Test-Path -LiteralPath $EnvExample)) {
+            Copy-Item -LiteralPath $EnvExample -Destination $EnvFile
+            Write-Host '📝 Created default .env from .env.example. You can modify it later.' -ForegroundColor Yellow
+        }
+    }
+} else {
+    if (-not (Test-Path -LiteralPath $EnvFile) -and (Test-Path -LiteralPath $EnvExample)) {
+        Copy-Item -LiteralPath $EnvExample -Destination $EnvFile
+    }
 }
 
 # 6. Setup PowerShell Command

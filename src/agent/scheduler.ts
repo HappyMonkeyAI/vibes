@@ -132,13 +132,12 @@ export class Scheduler {
     try {
       const missionContext = `Mission: ${this.mission.title}\nDescription: ${this.mission.description}`;
       const updatedTask = await this.executor.executeTask(task, missionContext, this.mission.workspace_root, this.onEvent, this.getYoloMode);
-      
-      updatedTask.userGuidance = undefined;
+
       this.updateTaskInMission(updatedTask);
 
       if (updatedTask.status === 'done') {
-        // Optional Review Step
-        if (config.ENABLE_REVIEWER) {
+        // Optional Review Step — only for code tasks
+        if (config.ENABLE_REVIEWER && updatedTask.type === 'code') {
           const { Reviewer } = await import('./reviewer.js');
           const reviewer = new Reviewer();
           const review = await reviewer.reviewTask(updatedTask, this.mission);
@@ -149,11 +148,29 @@ export class Scheduler {
             this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
           } else {
             log(`Task REJECTED by reviewer: ${updatedTask.title}. Feedback: ${review.feedback}`, 'WARN');
+            if (!updatedTask.userGuidance) {
+              // First rejection: auto-retry with reviewer feedback as guidance
+              log(`Auto-retrying task with reviewer feedback: ${updatedTask.title}`, 'INFO');
+              updatedTask.status = 'todo';
+              updatedTask.error = undefined;
+              updatedTask.output = undefined;
+              updatedTask.userGuidance = `Reviewer feedback: ${review.feedback}\n\n${config.CODEX_ENABLED ? 'Also consult the knowledge base patterns for the correct approach.' : ''}`;
+              updatedTask.extraSteps = (updatedTask.extraSteps || 0) + 10;
+              this.completedTasks.delete(task.id);
+              this.taskMap.set(task.id, updatedTask);
+              this.runningTasks.delete(task.id);
+              // Main run() loop will pick up the reset task on next tick
+              return;
+            }
+            // Second rejection: escalate to user
             updatedTask.status = 'failed';
             updatedTask.error = `Review Rejected: ${review.feedback}`;
             await this.handleTaskFailure(updatedTask);
           }
         } else {
+          if (config.ENABLE_REVIEWER) {
+            log(`Skipping review for non-code task (type=${updatedTask.type}): ${updatedTask.title}`, 'INFO');
+          }
           this.completedTasks.add(task.id);
           this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
         }
