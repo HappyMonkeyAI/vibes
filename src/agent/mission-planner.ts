@@ -97,6 +97,7 @@ Constraints:
         { role: 'user', content: `Please plan a mission for the following request:\n\n<request>\n${description}\n</request>` },
       ],
       temperature: 0.1,
+      max_tokens: 4096,
     });
 
     let content = response.choices[0]?.message?.content;
@@ -131,9 +132,11 @@ Constraints:
         milestones: rawPlan.milestones.map((m: any) => ({
           ...m,
           id: uuidv4(),
+          description: m.description || m.title || '',
           tasks: m.tasks.map((t: any) => ({
             ...t,
             id: uuidv4(),
+            type: ['code', 'config', 'research', 'unknown'].includes(t.type) ? t.type : 'code',
             status: 'todo',
             depends_on: [],
           })),

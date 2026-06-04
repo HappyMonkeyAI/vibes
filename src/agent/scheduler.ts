@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import { log } from '../logger.js';
 import { InterventionManager } from './intervention-manager.js';
 import { getMemoryService } from '../memory/index.js';
+import { runStructuralAudit } from './structural-audit.js';
 
 export type InterventionResolution = {
   action: 'retry' | 'skip' | 'fail' | 'reply';
@@ -144,6 +145,25 @@ export class Scheduler {
           
           if (review.approved) {
             log(`Task approved by reviewer: ${updatedTask.title}`, 'INFO');
+
+            // Structural audit phase — catches orphaned CSS, broken imports, syntax errors
+            if (config.ENABLE_STRUCTURAL_AUDIT && updatedTask.files.length > 0) {
+              const auditIssues = runStructuralAudit(this.mission.workspace_root, updatedTask.files);
+              if (auditIssues.length > 0) {
+                log(`Structural audit found ${auditIssues.length} issue(s), auto-retrying: ${updatedTask.title}`, 'WARN');
+                updatedTask.auditIssues = auditIssues;
+                updatedTask.status = 'todo';
+                updatedTask.error = undefined;
+                updatedTask.output = undefined;
+                updatedTask.userGuidance = `Structural audit found issues:\n${auditIssues.map(i => `- [${i.type}] ${i.file}: ${i.message}`).join('\n')}\n\nFix all audit issues before completing.`;
+                updatedTask.extraSteps = (updatedTask.extraSteps || 0) + 10;
+                this.completedTasks.delete(task.id);
+                this.taskMap.set(task.id, updatedTask);
+                this.runningTasks.delete(task.id);
+                return;
+              }
+            }
+
             this.completedTasks.add(task.id);
             this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
           } else {
@@ -171,6 +191,25 @@ export class Scheduler {
           if (config.ENABLE_REVIEWER) {
             log(`Skipping review for non-code task (type=${updatedTask.type}): ${updatedTask.title}`, 'INFO');
           }
+
+          // Structural audit phase (for non-reviewer path)
+          if (config.ENABLE_STRUCTURAL_AUDIT && updatedTask.files.length > 0) {
+            const auditIssues = runStructuralAudit(this.mission.workspace_root, updatedTask.files);
+            if (auditIssues.length > 0) {
+              log(`Structural audit found ${auditIssues.length} issue(s), auto-retrying: ${updatedTask.title}`, 'WARN');
+              updatedTask.auditIssues = auditIssues;
+              updatedTask.status = 'todo';
+              updatedTask.error = undefined;
+              updatedTask.output = undefined;
+              updatedTask.userGuidance = `Structural audit found issues:\n${auditIssues.map(i => `- [${i.type}] ${i.file}: ${i.message}`).join('\n')}\n\nFix all audit issues before completing.`;
+              updatedTask.extraSteps = (updatedTask.extraSteps || 0) + 10;
+              this.completedTasks.delete(task.id);
+              this.taskMap.set(task.id, updatedTask);
+              this.runningTasks.delete(task.id);
+              return;
+            }
+          }
+
           this.completedTasks.add(task.id);
           this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
         }

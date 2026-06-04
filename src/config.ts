@@ -28,6 +28,8 @@ const ConfigSchema = z.object({
   LOCAL_MEMORY: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
   CODEX_ENABLED: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   CODEX_TOP_K: z.coerce.number().default(3),
+  ENABLE_STRUCTURAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
+  ENABLE_ADVERSARIAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

@@ -87,10 +87,18 @@ const App = () => {
     }
 
     // Suppress other global shortcuts while typing in a text field
-    const isTyping = isIdle && view === 'dashboard'; 
+    const isTyping = (isIdle && view === 'dashboard') || view === 'settings'; 
     if (isTyping) {
-      if (key.tab) setFocusIndex(prev => (prev === 0 ? 1 : 0));
+      if (key.tab && !key.shift) setFocusIndex(prev => (prev === 0 ? 1 : 0));
+      if (key.tab && key.shift) setFocusIndex(prev => (prev === 1 ? 0 : 1));
       return; 
+    }
+
+    // Home/End key navigation (only when not typing in text fields or scrolling logs)
+    const canUseHomeEndForNav = !isIdle && view !== 'log' && view !== 'trace';
+    if (canUseHomeEndForNav) {
+      if (key.home) { setView('dashboard'); return; }
+      if (key.end) { setView('log'); return; }
     }
 
     if (view === 'history') {
@@ -110,6 +118,8 @@ const App = () => {
       return;
     }
   });
+
+
 
   const handleSubmit = (val: string) => {
     if (val.trim()) {

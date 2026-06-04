@@ -29,19 +29,46 @@ export const useMission = () => {
   const isYoloRef = useRef(config.YOLO_MODE);
   const sessionService = getSessionService();
 
+  // Event buffer for throttled rendering — prevents re-render storming
+  const eventBufferRef = useRef<ExecutionEvent[]>([]);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushEvents = useCallback(() => {
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    if (eventBufferRef.current.length === 0) return;
+    const buffered = eventBufferRef.current;
+    eventBufferRef.current = [];
+    setEvents(prev => {
+      const newEvents = [...prev, ...buffered];
+      if (schedulerRef.current) {
+        const currentMission = { ...schedulerRef.current['mission'] };
+        setMission(currentMission);
+        sessionService.saveSession(currentMission, newEvents, { readFiles: [], modifiedFiles: [] }).then(() => {
+          sessionService.listSessions().then(setSessions);
+        });
+      }
+      return newEvents;
+    });
+  }, [sessionService]);
+
   // Load past sessions on mount
   useEffect(() => {
     sessionService.listSessions().then(setSessions);
   }, [sessionService]);
 
-  // System Log Stream Integration
+  // System Log Stream Integration — uses event buffer to avoid re-render storming
   useEffect(() => {
     const listener = (level: any, message: string, timestamp: string) => {
-      setEvents(prev => [...prev, { type: 'system_log', level, message, timestamp }]);
+      eventBufferRef.current.push({ type: 'system_log', level, message, timestamp });
+      if (!flushTimerRef.current) {
+        flushTimerRef.current = setTimeout(flushEvents, 100);
+      }
     };
     addLogListener(listener);
     return () => removeLogListener(listener);
-  }, []);
+  }, [flushEvents]);
 
   const toggleYoloMode = useCallback(() => {
     setIsYoloMode(prev => {
@@ -125,21 +152,12 @@ export const useMission = () => {
         if (event.type === 'steps_updated') {
           setActiveMaxSteps(config.MAX_STEPS + event.extraSteps);
         }
-        
-        setEvents(prev => {
-          const newEvents = [...prev, event];
-          
-          if (schedulerRef.current) {
-            const currentMission = { ...schedulerRef.current['mission'] };
-            setMission(currentMission);
-            // Auto-save on every event with latest events array
-            sessionService.saveSession(currentMission, newEvents, { readFiles: [], modifiedFiles: [] }).then(() => {
-              sessionService.listSessions().then(setSessions);
-            });
-          }
-          
-          return newEvents;
-        });
+
+        // Buffer events and flush periodically to avoid re-render storming
+        eventBufferRef.current.push(event);
+        if (!flushTimerRef.current) {
+          flushTimerRef.current = setTimeout(flushEvents, 100);
+        }
       };
 
       const scheduler = new Scheduler(plan, executor, onEvent, () => isYoloRef.current);

@@ -23,6 +23,12 @@ export const TaskSchema = z.object({
   userGuidance: z.string().optional(),
   // Extra steps granted on retry (added to MAX_STEPS)
   extraSteps: z.number().optional(),
+  // Issues found during pre-completion structural audit
+  auditIssues: z.array(z.object({
+    type: z.enum(['import', 'css_orphan', 'syntax', 'prop_mismatch', 'dead_code']),
+    file: z.string(),
+    message: z.string(),
+  })).optional(),
 });
 
 export type Task = z.infer<typeof TaskSchema>;

@@ -1,8 +1,40 @@
 /**
+ * Extract JSON object from text that may contain preamble (thinking tokens, etc.)
+ */
+function extractJson(text: string): string {
+  let trimmed = text.trim();
+  // Strip  ...  reasoning blocks (common in reasoning models like phi-4-mini)
+  trimmed = trimmed.replace(/^[\s\S]*?```/m, '').trim();
+  if (!trimmed) trimmed = text.trim();
+  // Try to find a complete JSON object: first '{' to matching '}'
+  const start = trimmed.indexOf('{');
+  if (start === -1) return trimmed;
+
+  let depth = 0;
+  let inStr = false;
+  let escaped = false;
+  for (let i = start; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === '"' && !escaped) inStr = !inStr;
+    if (!inStr) {
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+    }
+    if (ch === '\\' && !escaped) escaped = true;
+    else escaped = false;
+    if (depth === 0 && i > start) {
+      return trimmed.slice(start, i + 1);
+    }
+  }
+  // No closing brace found — return from start onward
+  return trimmed.slice(start);
+}
+
+/**
  * Attempts to repair common JSON errors from LLMs
  */
 export function repairJson(json: string): string {
-  let repaired = json.trim();
+  let repaired = extractJson(json);
 
   // Remove any markdown code blocks
   if (repaired.includes('```')) {

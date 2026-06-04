@@ -56,3 +56,16 @@
 ### 6. PowerShell Native Command Error gotcha
 - **Lesson:** When `$ErrorActionPreference = 'Stop'` is set in a PowerShell script, any output to the standard error stream (stderr) by native commands (such as `git` or `npm`) is intercepted and treated as a terminating `NativeCommandError`, crashing the script even if the command completed successfully.
 - **Fix:** Set `$ErrorActionPreference = 'Continue'` when invoking external native commands, avoid redirecting stderr (`2>&1`) to standard output in capturing variables, and check `$LASTEXITCODE` to explicitly manage execution failures.
+
+### 7. Raw SGR Mouse Leakage
+- **Lesson:** Enabling raw SGR mouse reporting (`\x1b[?1000h\x1b[?1006h`) in Ink TUIs translates mouse clicks and scroll wheel events into ANSI escape sequences sent to stdin. Because standard Ink text inputs listen to all stdin data, these sequences leak and append garbage characters (like `[<0;...`) into text fields.
+- **Fix:** Avoid SGR mouse mode unless stdin can be cleanly wrapped to intercept and strip mouse escape sequences before they reach Ink's key listener.
+
+### 8. Incremental Rendering Screen Overlap
+- **Lesson:** Ink's `incrementalRendering: true` uses line-level diffing to minimize redraw flickering. However, if background processes or remote LLM logs write directly to stdout/stderr, these lines are never cleared by Ink and permanently overlap the TUI layout.
+- **Fix:** Use full terminal screen redraws (default rendering) to clear background print noise, and solve rendering flickering at the state layer (e.g. by buffering/throttling state flushes).
+
+### 9. Navigation Key Hijacking
+- **Lesson:** Binding global view-switching commands to generic keys like `Home` and `End` intercepts them globally, breaking text cursor navigation in inputs and log scroll handlers in lists.
+- **Fix:** Guard global navigation shortcuts so they are disabled if a text input is active or the current view uses those keys locally for scrolling.
+
