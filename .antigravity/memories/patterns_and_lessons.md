@@ -154,6 +154,15 @@
 - **Files:** `src/agent/types.ts`, `src/agent/task-executor.ts`
 - **Commit:** `fix: reset consecutive turn thrash history at task start boundary`
 
+### 21. Resilient Tool Argument Parsing & Auto-Normalization
+- **Lesson:** LLMs frequently produce malformed tool arguments based on library defaults or other models (e.g. passing `timeout` as an object `{"total": 10}` or in seconds instead of milliseconds). When Zod validation fails, the model gets stuck in an execution failure loop, triggering thrash detection.
+- **Fix:** 
+  1. Define tool schemas defensively using `z.union` to support both native formats and common malformed object variants (transforming objects back to primitive types).
+  2. Implement auto-normalization on parsed values inside the tool executor (e.g. converting seconds $\le 1000$ to milliseconds) to ensure expected execution runtime behavior.
+- **Files:** `src/tools/shell-tool.ts`
+- **Commit:** `fix: shell tool — support object-based timeout and seconds-to-milliseconds auto-normalization`
+
+
 
 
 
