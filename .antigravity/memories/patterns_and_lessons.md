@@ -162,6 +162,13 @@
 - **Files:** `src/tools/shell-tool.ts`
 - **Commit:** `fix: shell tool — support object-based timeout and seconds-to-milliseconds auto-normalization`
 
+### 22. Intra-Run Tool Failure Memory Persistence
+- **Lesson:** If the agent has no memory of its tool call failures across retries (because the message history resets completely on task retry), it is prone to repeating the exact same invalid commands or actions, leading to loop detection blocks.
+- **Fix:** Implement the `afterToolCall` hook in `TaskExecutor` to automatically save failed tool usage logs (including the tool name, arguments, and failure result) to the memory service. This serves as "experience replay," which is retrieved at the start of any subsequent attempts of the task.
+- **Files:** `src/agent/task-executor.ts`
+- **Commit:** `fix: task executor — persist failed tool execution logs to memory for intra-run learning`
+
+
 
 
 
