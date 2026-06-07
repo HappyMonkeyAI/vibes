@@ -55,13 +55,12 @@ function extractJson(text: string): string {
   let escaped = false;
   for (let i = start; i < trimmed.length; i++) {
     const ch = trimmed[i];
-    if (ch === '"' && !escaped) inStr = !inStr;
+    if (!escaped && ch === '"') inStr = !inStr;
     if (!inStr) {
       if (ch === '{') depth++;
       else if (ch === '}') depth--;
     }
-    if (ch === '\\' && !escaped) escaped = true;
-    else escaped = false;
+    escaped = !escaped && ch === '\\';
     if (depth === 0 && i > start) {
       return trimmed.slice(start, i + 1);
     }
@@ -94,15 +93,14 @@ export function repairJson(json: string): string {
     const nextChar = i + 1 < repaired.length ? repaired[i + 1] : '';
 
     // Handle string state
-    if (char === '"' && !escaped) {
+    if (!escaped && char === '"') {
       inString = !inString;
       result += char;
       continue;
     }
 
     if (inString) {
-      if (char === '\\') escaped = !escaped;
-      else escaped = false;
+      escaped = !escaped && char === '\\';
       result += char;
       continue;
     }
@@ -132,12 +130,12 @@ export function repairJson(json: string): string {
 
   for (let i = 0; i < repaired.length; i++) {
     const char = repaired[i];
-    if (char === '"' && !escaped) inString = !inString;
+    if (!escaped && char === '"') inString = !inString;
     if (inString) {
-      if (char === '\\') escaped = !escaped;
-      else escaped = false;
+      escaped = !escaped && char === '\\';
       continue;
     }
+    escaped = false;
     if (char === '{') openBraces++;
     if (char === '}') openBraces--;
     if (char === '[') openBrackets++;

@@ -30,6 +30,8 @@ const ConfigSchema = z.object({
   CODEX_TOP_K: z.coerce.number().default(3),
   ENABLE_STRUCTURAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   ENABLE_ADVERSARIAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
+  CODEX_SCRIPT_PATH: z.string().default(''),
+  CODEX_PYTHON_PATH: z.string().default(''),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

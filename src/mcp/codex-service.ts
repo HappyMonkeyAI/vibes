@@ -6,8 +6,8 @@ import { log } from '../logger.js';
 
 const execAsync = promisify(execFile);
 
-const CODEX_SCRIPT = process.env.CODEX_SCRIPT_PATH || '/home/stephen/Documents/www/LLM-Codex-Reference-Vault/codex_search.py';
-const PYTHON = process.env.CODEX_PYTHON_PATH || '/home/stephen/Documents/www/LLM-Codex-Reference-Vault/venv/bin/python';
+const CODEX_SCRIPT = config.CODEX_SCRIPT_PATH || process.env.CODEX_SCRIPT_PATH || '';
+const PYTHON = config.CODEX_PYTHON_PATH || process.env.CODEX_PYTHON_PATH || '';
 
 export interface CodexResult {
   document: string;
@@ -27,11 +27,11 @@ class CodexService {
   private lastOfflineCheck = 0;
 
   init(): void {
-    if (!existsSync(CODEX_SCRIPT)) {
-      log(`Codex script not found: ${CODEX_SCRIPT}. Set CODEX_SCRIPT_PATH env var or set CODEX_ENABLED=false.`, 'WARN');
+    if (!CODEX_SCRIPT || !existsSync(CODEX_SCRIPT)) {
+      log(`Codex script not found: "${CODEX_SCRIPT || '(empty)'}". Set CODEX_SCRIPT_PATH in .env or .vibes/config.json, or set CODEX_ENABLED=false.`, 'WARN');
     }
-    if (!existsSync(PYTHON)) {
-      log(`Codex python not found: ${PYTHON}. Set CODEX_PYTHON_PATH env var or set CODEX_ENABLED=false.`, 'WARN');
+    if (!PYTHON || !existsSync(PYTHON)) {
+      log(`Codex python not found: "${PYTHON || '(empty)'}". Set CODEX_PYTHON_PATH in .env or .vibes/config.json, or set CODEX_ENABLED=false.`, 'WARN');
     }
     this.inited = true;
     log('Codex service initialized (Neo4j semantic search RAG)', 'INFO');
@@ -42,6 +42,10 @@ class CodexService {
   }
 
   private async runCodexSearch(query: string, topK: number, embeddingHostOverride?: string): Promise<CodexSearchResponse> {
+    if (!PYTHON || !CODEX_SCRIPT) {
+      log('Codex search skipped: PYTHON or CODEX_SCRIPT path is empty.', 'WARN');
+      return { results: [], count: 0 };
+    }
     const { stdout, stderr } = await execAsync(PYTHON, [CODEX_SCRIPT, query, String(topK)], {
       timeout: 30000,
       env: {
