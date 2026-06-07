@@ -127,3 +127,10 @@
 - **Files:** `src/memory/memory-service.ts`
 - **Commit:** `fix: memory service — gate on MEMORY_ENABLED, clear diagnostic for missing API key, fix local init race`
 
+### 17. OpenAI-Style Tool Call Format Fallback Parser
+- **Lesson:** Standard fallback markdown JSON tool parsers that only support custom keys like `tool` and `args` will miss tool calls from models that output standard OpenAI function calling schemas (`name` and `arguments`). This causes tasks to be marked complete without executing their underlying operations, leading to downstream errors.
+- **Fix:** Extend manual tool call parsing to recognize JSON objects that possess `name` and (`arguments` or `args`) fields, ensuring compatibility with standard OpenAI formats.
+- **Files:** `src/agent/task-executor.ts`
+- **Commit:** `fix: manual tool call parsing — support standard OpenAI name/arguments structure`
+
+
