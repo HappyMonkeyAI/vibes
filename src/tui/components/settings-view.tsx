@@ -29,6 +29,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const [focusIndex, setFocusIndex] = React.useState(0);
   const [tempSettings, setTempSettings] = React.useState(settings);
+  const [draftValues, setDraftValues] = React.useState<Record<string, string>>({});
   const [status, setStatus] = React.useState<'idle' | 'saved'>('idle');
 
   const fields: FieldDefinition[] = [
@@ -60,6 +61,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setStatus('saved');
   };
 
+  const saveCurrentDraft = () => {
+    const currentField = fields[focusIndex];
+    if (!currentField || (currentField.type !== 'text' && currentField.type !== 'number')) return;
+    const draft = draftValues[currentField.key];
+    if (draft === undefined || draft === String(tempSettings[currentField.key] ?? '')) return;
+    const parsed = currentField.type === 'number' ? Number(draft) : draft;
+    handleSave(currentField.key, parsed);
+  };
+
   useInput((input, pressedKey) => {
     if (pressedKey.escape || (pressedKey.meta && input === 's')) {
       onClose();
@@ -67,11 +77,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
 
     if (pressedKey.tab && !pressedKey.shift) {
+      saveCurrentDraft();
       setFocusIndex((prev) => (prev + 1) % fields.length);
       setStatus('idle');
     }
 
     if (pressedKey.shift && pressedKey.tab) {
+      saveCurrentDraft();
       setFocusIndex((prev) => (prev - 1 + fields.length) % fields.length);
       setStatus('idle');
     }
@@ -125,6 +137,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Box borderStyle="single" borderColor="cyan" paddingX={1}>
                 <TextInput
                   defaultValue={String(tempSettings[field.key] ?? '')}
+                  onChange={(val) => setDraftValues(prev => ({ ...prev, [field.key]: val }))}
                   onSubmit={(val) => handleSave(field.key, Number(val))}
                 />
               </Box>
@@ -136,6 +149,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <Box borderStyle="single" borderColor="cyan" paddingX={1}>
                 <TextInput
                   defaultValue={String(tempSettings[field.key] ?? '')}
+                  onChange={(val) => setDraftValues(prev => ({ ...prev, [field.key]: val }))}
                   onSubmit={(val) => handleSave(field.key, val)}
                 />
               </Box>
