@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Text, useInput } from 'ink';
 import chalk from 'chalk';
 
@@ -20,7 +20,7 @@ export function EnhancedTextInput({ defaultValue = '', placeholder = '', onChang
       return;
     }
     onChange?.(value);
-  }, [value]);
+  }, [value, onChange]);
 
   useEffect(() => {
     setValue(defaultValue);
@@ -72,10 +72,9 @@ export function EnhancedTextInput({ defaultValue = '', placeholder = '', onChang
       return placeholder ? chalk.dim(placeholder) : chalk.inverse(' ');
     }
     let result = '';
-    let idx = 0;
-    for (const char of value) {
-      result += idx === cursorOffset ? chalk.inverse(char) : char;
-      idx++;
+    for (let i = 0; i < value.length; i++) {
+      const char = value[i];
+      result += i === cursorOffset ? chalk.inverse(char) : char;
     }
     if (cursorOffset === value.length) {
       result += chalk.inverse(' ');
