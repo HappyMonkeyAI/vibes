@@ -702,7 +702,7 @@ function parseMarkdownToolCalls(content: string): any[] | null {
         );
         if (hasToolIdentifier) {
           calls.push({
-            id: `manual_${Math.random().toString(36).substr(2, 9)}`,
+            id: `manual_${Math.random().toString(36).substring(2, 11)}`,
             type: 'function',
             function: {
               name: item.tool || item.tool_name || item.name,
@@ -721,7 +721,7 @@ function parseMarkdownToolCalls(content: string): any[] | null {
       )
     ) {
       return [{
-        id: `manual_${Math.random().toString(36).substr(2, 9)}`,
+        id: `manual_${Math.random().toString(36).substring(2, 11)}`,
         type: 'function',
         function: {
           name: parsed.tool || parsed.tool_name || parsed.name,

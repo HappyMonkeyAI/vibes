@@ -63,8 +63,8 @@ const SAFE_REDIRECT_RE = /(?:^|\s)[0-9]*(?:>>?|&>)\s*\/dev\/null\b/g;
 
 function checkCommand(command: string): string | null {
   // Path traversal check
-  if (command.includes('..')) {
-    return 'Path traversal detected (.. is not allowed in shell commands)';
+  if (command.includes('..') || /%2e/i.test(command)) {
+    return 'Path traversal detected (.. or encoded variants not allowed in shell commands)';
   }
 
   // Strip safe redirects (>/dev/null, 2>/dev/null, &>/dev/null) before pattern
@@ -118,8 +118,10 @@ export const shellTool: ToolDefinition = {
     ]).default(false).catch(false).describe("If true, non-zero exit codes fail the tool call. Set to false if you expect non-zero exit codes (e.g. grep finding no matches)."),
   }),
   execute: async ({ command, timeout, failOnError }, context): Promise<ToolResult> => {
-    // Normalize timeout: if specified in seconds (<= 1000), convert to milliseconds
-    const msTimeout = timeout <= 1000 ? timeout * 1000 : timeout;
+    // Timeout from Zod schema is already in milliseconds (default 30000).
+    // No seconds-guessing heuristic: small models may pass low ms values, and
+    // the schema's .catch(30000) provides a safe floor.
+    const msTimeout = timeout;
 
     // Security check before execution
     const blockReason = checkCommand(command);
