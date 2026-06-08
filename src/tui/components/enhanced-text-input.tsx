@@ -48,10 +48,16 @@ export function EnhancedTextInput({ defaultValue = '', placeholder = '', onChang
       onSubmit?.(value);
       return;
     }
-    if (key.backspace || key.delete) {
+    if (key.backspace) {
       if (cursorOffset > 0) {
         setValue(prev => prev.slice(0, cursorOffset - 1) + prev.slice(cursorOffset));
         setCursorOffset(prev => prev - 1);
+      }
+      return;
+    }
+    if (key.delete) {
+      if (cursorOffset < value.length) {
+        setValue(prev => prev.slice(0, cursorOffset) + prev.slice(cursorOffset + 1));
       }
       return;
     }
