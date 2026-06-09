@@ -290,7 +290,7 @@ export class TriageAgent {
         messages: [systemMsg, userMsg],
         tools: [{ type: 'function', function: TRIAGE_FUNCTION_SCHEMA }],
         tool_choice: { type: 'function', function: { name: 'triage' } },
-        max_tokens: 100,
+        max_tokens: 1024,
         temperature: 0,
       });
       const call = response.choices[0]?.message?.tool_calls?.[0];
@@ -308,7 +308,7 @@ export class TriageAgent {
       const response = await client.chat.completions.create({
         model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 150,
+        max_tokens: 1024,
         temperature: 0,
       });
       const msg = response.choices[0]?.message as any;

@@ -194,10 +194,6 @@ export class TaskExecutor {
     isError: boolean,
     assistantMessage: any,
   ): Promise<ToolResult> {
-    // Default: record memory
-    if (isError && this.memory.isEnabled()) {
-      await this.memory.addToolUsage(toolCall.function.name, args, result).catch(() => {});
-    }
     if (!this.hooks?.afterToolCall) return result;
 
     try {
@@ -557,14 +553,6 @@ const MSG_HARD_CAP = 150;
                 onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
                 messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(preResult) });
                 continue;
-              }
-
-              // afterToolCall hook preflight (run per-tool by default, still sequential)
-              try {
-                await this.invokeAfterToolCall(tool, toolCall, validatedArgs, preResult, true, message);
-              } catch (hookErr: any) {
-                // Non-fatal: log but carry on
-                log(`afterToolCall hook error [${toolCall.function.name}]: ${hookErr.message}`, 'WARN');
               }
             } catch (err: any) {
               preResult = { success: false, error: err.message || 'Tool execution error' };
