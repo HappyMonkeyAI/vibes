@@ -6,6 +6,7 @@ import { logObject, log } from '../logger.js';
 import { repairJson, extractJsonContent } from './json-repair.js';
 import { getMemoryService } from '../memory/index.js';
 import { detectTechStack } from './tech-stack.js';
+import { getModelSpecificPrompt } from './model-prompts.js';
 
 export class MissionPlanner {
   private memory = getMemoryService();
@@ -49,11 +50,15 @@ export class MissionPlanner {
       ? `\n[WORKSPACE TECH STACK]: ${stack.join(', ')}\nTailor all task file paths, languages, and implementation approaches to this stack.\n`
       : '';
 
+    const plannerModel = config.PLANNER_MODEL || getModel();
+    const modelSpecificPrompt = getModelSpecificPrompt(plannerModel, 'planner');
+
     const systemPrompt = `You are a mission planning agent. Break the mission into milestones and tasks.
 Output ONLY a JSON object.
 ${memoriesSection}
 ${projectRules}
 ${stackContext}
+${modelSpecificPrompt}
 
 Structure:
 {
@@ -101,7 +106,6 @@ Constraints:
 11. A request for a "web app" means: HTML, CSS, and JavaScript files only. Not a build pipeline, not a service worker, not a deployment config — unless explicitly asked.
 12. Define task dependencies in the "depends_on" field using the exact titles of prerequisite tasks in the plan. If there are no prerequisites, use an empty array. Design the plan so that file creation, code implementation, test suites, and manual verifications follow a logical sequence.`;
 
-    const plannerModel = config.PLANNER_MODEL || getModel();
     const response = await getOllamaClient('planner').chat.completions.create({
       model: plannerModel,
       messages: [

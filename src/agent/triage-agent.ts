@@ -2,6 +2,7 @@ import { config } from '../config.js';
 import { log } from '../logger.js';
 import { getOllamaClient, getModel } from '../ollama-client.js';
 import { extractJsonContent } from './json-repair.js';
+import { getModelSpecificPrompt } from './model-prompts.js';
 import type {
   AgentLoopHooks,
   AfterToolCallContext,
@@ -280,7 +281,8 @@ export class TriageAgent {
   private async callTriageModel(context: string): Promise<TriageAction> {
     const model = config.TRIAGE_MODEL || getModel();
     const client = getOllamaClient('triage');
-    const systemMsg = { role: 'system' as const, content: TRIAGE_SYSTEM_PROMPT };
+    const modelSpecificPrompt = getModelSpecificPrompt(model, 'triage');
+    const systemMsg = { role: 'system' as const, content: TRIAGE_SYSTEM_PROMPT + modelSpecificPrompt };
     const userMsg = { role: 'user' as const, content: context };
 
     // Attempt 1: function calling (structured output)
@@ -304,7 +306,7 @@ export class TriageAgent {
 
     // Attempt 2: JSON-in-prompt (portable, works with any provider)
     try {
-      const prompt = `${TRIAGE_SYSTEM_PROMPT}\n\n${context}\n\nRespond with ONLY a JSON object matching this schema:\n${JSON.stringify(TRIAGE_FUNCTION_SCHEMA, null, 2)}`;
+      const prompt = `${TRIAGE_SYSTEM_PROMPT}${modelSpecificPrompt}\n\n${context}\n\nRespond with ONLY a JSON object matching this schema:\n${JSON.stringify(TRIAGE_FUNCTION_SCHEMA, null, 2)}`;
       const response = await client.chat.completions.create({
         model,
         messages: [{ role: 'user', content: prompt }],

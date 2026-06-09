@@ -15,6 +15,7 @@ import {
   estimateMessagesTokens,
 } from './context-manager.js';
 import { compact } from './compaction/compaction.js';
+import { getModelSpecificPrompt } from './model-prompts.js';
 
 /** Type guard — narrows `BeforeToolCallResult | void | undefined` to `BeforeToolCallResult`. */
 function isBlockResult(v: BeforeToolCallResult | void | undefined): v is BeforeToolCallResult {
@@ -273,6 +274,11 @@ export class TaskExecutor {
     const isYolo = getYoloMode();
     const skillsSection = this.skills.formatForSystemPrompt();
 
+    // Determine the target model before prompt construction.
+    const isReviewerModel = task.use_reviewer_model && config.ENABLE_REVIEWER;
+    const resolvedTaskModel = isReviewerModel ? config.REVIEWER_MODEL : getModel();
+    const modelSpecificPrompt = getModelSpecificPrompt(resolvedTaskModel, 'executor');
+
     // Codex Context: Retrieve relevant patterns from Neo4j knowledge graph
     let codexSection = '';
     const codex = getCodexService();
@@ -333,6 +339,7 @@ Rules:
 Only call one tool at a time when using the fallback format.
 [ignoring loop detection]
 ${projectRules}
+${modelSpecificPrompt}
 
 Skills:
 ${skillsSection}

@@ -1,3 +1,12 @@
+---
+type: procedural
+tags: [typescript, agents, prompts, model-compatibility, gemma]
+created: 2026-06-09
+related: [codebase_insights/agent_architecture.md, architectural_decisions/local_llm_hybrid_strategy.md]
+blast_radius: [src/agent, package-distribution]
+confidence: high
+---
+
 # Patterns & Lessons: Vibes TUI
 
 ## 🟢 Success Patterns (Anti-Gravity)
@@ -212,3 +221,10 @@
 - **Fix:** Convert to a config-aware singleton that caches the client and only re-creates when `OLLAMA_BASE_URL` or `OLLAMA_API_KEY` changes (to support live `updateConfig()` from the settings TUI). A shared singleton enables HTTP Keep-Alive reuse across all agent steps and concurrent tasks.
 - **Note:** Per-step sequential LLM calls within a single `TaskExecutor` loop are correct by design. Parallelism is at the *task* level via `MAX_CONCURRENT_TASKS` in the Scheduler.
 - **Files:** `src/ollama-client.ts`
+
+### 31. Role-Aware Model Prompt Adapters
+
+- **Lesson:** A prompt written for one agent harness cannot be injected unchanged into every role. Instructions such as "emit unified diffs" conflict with Vibes native tools and corrupt JSON-only planner, reviewer, and triage responses.
+- **Fix:** Split model guidance into a shared compatibility prompt plus a final role contract. Executor guidance preserves Vibes function tools and its JSON fallback; planner and reviewer require raw schema-valid JSON; triage prefers its forced function call and falls back to raw JSON.
+- **Distribution:** Model prompts are Vibes runtime assets, not mission-workspace files. Resolve bundled assets relative to `import.meta.url`, include them in the npm `files` list, and cache their contents after the first read.
+- **Files:** `src/agent/model-prompts.ts`, `gemma-12b-prompt.md`, `package.json`

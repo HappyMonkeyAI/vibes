@@ -2,14 +2,17 @@ import { getOllamaClient } from '../ollama-client.js';
 import { Task, Mission } from './types.js';
 import { log } from '../logger.js';
 import { config } from '../config.js';
+import { getModelSpecificPrompt } from './model-prompts.js';
 
 export class Reviewer {
   async reviewTask(task: Task, mission: Mission): Promise<{ approved: boolean; feedback?: string }> {
     log(`Reviewing task: ${task.title}`, 'INFO');
+    const modelSpecificPrompt = getModelSpecificPrompt(config.REVIEWER_MODEL, 'reviewer');
 
     const systemPrompt = `You are a Senior Software Engineer performing a code review.
 Review the task completion based on the description and acceptance criteria.
 Output ONLY a JSON object.
+${modelSpecificPrompt}
 
 Structure:
 {

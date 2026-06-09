@@ -8,11 +8,13 @@
   },
   "files": [
     "dist/**/*.js",
+    "gemma-12b-prompt.md",
     "README.md",
     "LICENSE.md"
   ],
   "scripts": {
     "build": "tsc",
+    "test:model-prompts": "npm run build && node --test tests/model-prompts.test.mjs",
     "prepack": "npm run build",
     "start": "tsx --no-warnings src/index.tsx",
     "dev": "tsx watch --no-warnings --exclude .vibes --exclude dist --clear-screen=false src/index.tsx",
