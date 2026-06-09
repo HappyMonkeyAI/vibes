@@ -58,10 +58,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     { label: 'Triage Auto-Steer', key: 'TRIAGE_AUTO_STEER', type: 'boolean' },
   ];
 
-  // Sync tempSettings when the parent settings prop changes.
-  React.useEffect(() => {
-    setTempSettings(settings);
-  }, [settings]);
+  // Removed the auto-sync useEffect that forces tempSettings to reset 
+  // on every keystroke save, causing the draft input state to jump.
 
   const handleSave = (key: keyof SettingsShape, value: SettingsShape[keyof SettingsShape]) => {
     const updated = { ...tempSettings, [key]: value };
@@ -143,9 +141,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <Box flexDirection="row">
                   <Text color="cyan">❯ </Text>
                   <TextInput
-                    defaultValue={String(tempSettings[field.key] ?? '')}
+                    defaultValue={draftValues[field.key] !== undefined ? draftValues[field.key] : String(tempSettings[field.key] ?? '')}
                     onChange={(val) => setDraftValues(prev => ({ ...prev, [field.key]: val }))}
-                    onSubmit={(val) => handleSave(field.key, Number(val))}
+                    onSubmit={(val) => {
+                      handleSave(field.key, Number(val));
+                      setDraftValues(prev => {
+                        const copy = { ...prev };
+                        delete copy[field.key];
+                        return copy;
+                      });
+                    }}
                   />
                 </Box>
               ) : field.type === 'number' ? (
@@ -158,9 +163,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <Box flexDirection="row">
                   <Text color="cyan">❯ </Text>
                   <TextInput
-                    defaultValue={String(tempSettings[field.key] ?? '')}
+                    defaultValue={draftValues[field.key] !== undefined ? draftValues[field.key] : String(tempSettings[field.key] ?? '')}
                     onChange={(val) => setDraftValues(prev => ({ ...prev, [field.key]: val }))}
-                    onSubmit={(val) => handleSave(field.key, val)}
+                    onSubmit={(val) => {
+                      handleSave(field.key, val);
+                      setDraftValues(prev => {
+                        const copy = { ...prev };
+                        delete copy[field.key];
+                        return copy;
+                      });
+                    }}
                   />
                 </Box>
               ) : field.type === 'text' ? (
