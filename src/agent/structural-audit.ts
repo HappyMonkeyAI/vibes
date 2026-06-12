@@ -334,7 +334,6 @@ export function runStructuralAudit(workspaceRoot: string, taskFiles: string[]): 
               if (templateBraces.length > 0) {
                 braceDepth = templateBraces.pop()!;
               } else {
-                syntaxError = true;
                 break;
               }
             }
