@@ -19,6 +19,11 @@ interface FieldDefinition {
   type: FieldType;
 }
 
+const SELECT_OPTIONS: Record<string, string[]> = {
+  DATA_SHARING_MODE: ['none', 'workspace', 'full'],
+  TOOL_EXECUTION_MODE: ['sequential', 'parallel'],
+};
+
 const FIELDS: FieldDefinition[] = [
   { label: 'Ollama Model', key: 'OLLAMA_MODEL', type: 'text' },
   { label: 'Base URL', key: 'OLLAMA_BASE_URL', type: 'text' },
@@ -34,16 +39,28 @@ const FIELDS: FieldDefinition[] = [
   { label: 'Triage API Key', key: 'TRIAGE_API_KEY', type: 'text' },
   { label: 'Context Window', key: 'CONTEXT_WINDOW', type: 'number' },
   { label: 'Max Steps', key: 'MAX_STEPS', type: 'number' },
+  { label: 'Max Concurrent Tasks', key: 'MAX_CONCURRENT_TASKS', type: 'number' },
   { label: 'Reasoning Mode', key: 'THINKING_MODE', type: 'boolean' },
   { label: 'Default YOLO Mode', key: 'YOLO_MODE', type: 'boolean' },
-  { label: 'Max Concurrent Tasks', key: 'MAX_CONCURRENT_TASKS', type: 'number' },
+  { label: 'Tool Execution Mode', key: 'TOOL_EXECUTION_MODE', type: 'select' },
+  { label: 'Data Sharing Mode', key: 'DATA_SHARING_MODE', type: 'select' },
+  { label: 'Context Compaction', key: 'CONTEXT_COMPACTION_ENABLED', type: 'boolean' },
+  { label: 'Enable Structural Audit', key: 'ENABLE_STRUCTURAL_AUDIT', type: 'boolean' },
+  { label: 'Enable Adversarial Audit', key: 'ENABLE_ADVERSARIAL_AUDIT', type: 'boolean' },
   { label: 'Enable Coder-Reviewer Swarm', key: 'ENABLE_REVIEWER', type: 'boolean' },
+  { label: 'Agent Hooks', key: 'AGENT_HOOKS', type: 'boolean' },
+  { label: 'Multi-Agent Enabled', key: 'MULTI_AGENT_ENABLED', type: 'boolean' },
   { label: 'Memory Enabled', key: 'MEMORY_ENABLED', type: 'boolean' },
   { label: 'Local Memory', key: 'LOCAL_MEMORY', type: 'boolean' },
   { label: 'Memory User ID', key: 'MEMORY_USER_ID', type: 'text' },
   { label: 'Triage Observer', key: 'TRIAGE_ENABLED', type: 'boolean' },
   { label: 'Triage Interval (tasks)', key: 'TRIAGE_INTERVAL', type: 'number' },
   { label: 'Triage Auto-Steer', key: 'TRIAGE_AUTO_STEER', type: 'boolean' },
+  { label: 'Codex RAG', key: 'CODEX_ENABLED', type: 'boolean' },
+  { label: 'Codex Top-K', key: 'CODEX_TOP_K', type: 'number' },
+  { label: 'Codex Script Path', key: 'CODEX_SCRIPT_PATH', type: 'text' },
+  { label: 'Codex Python Path', key: 'CODEX_PYTHON_PATH', type: 'text' },
+  { label: 'Trace Directory', key: 'TRACE_DIR', type: 'text' },
 ];
 
 const SETTINGS_CHROME_ROWS = 15;
@@ -111,6 +128,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         onToggleYoloMode(newVal);
       }
     }
+
+    if (currentField?.type === 'select') {
+      const options = SELECT_OPTIONS[currentField.key];
+      if (options && (pressedKey.leftArrow || pressedKey.rightArrow)) {
+        const currentIdx = options.indexOf(String(tempSettings[currentField.key] ?? options[0]));
+        const delta = pressedKey.rightArrow ? 1 : -1;
+        const nextIdx = (currentIdx + delta + options.length) % options.length;
+        handleSave(currentField.key, options[nextIdx]);
+      }
+    }
   });
 
   const maxVisible = getSettingsViewportSize(stdout.rows || 24);
@@ -130,7 +157,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" padding={1}>
       <Box justifyContent="space-between" marginBottom={1}>
         <Text bold color="cyan">⚙️ SETTINGS</Text>
-        <Text color="gray">[Tab] Navigate | [Space/Enter] Toggle | [Alt+S/Esc] Close</Text>
+        <Text color="gray">[Tab] Navigate | [Space/Enter] Toggle | [←/→] Select | [Alt+S/Esc] Close</Text>
       </Box>
 
       {FIELDS.map((field, index) => {
@@ -173,6 +200,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </Box>
               ) : field.type === 'number' ? (
                 <Text color="gray">{currentValue}</Text>
+              ) : field.type === 'select' ? (
+                <Box>
+                  <Text color={isFocused ? 'cyan' : 'yellow'}>
+                    {isFocused ? '◀ ' : ''}{currentValue}{isFocused ? ' ▶' : ''}
+                  </Text>
+                </Box>
               ) : (
                 <Box>
                   <Text color={tempSettings[field.key] ? 'green' : 'red'}>
