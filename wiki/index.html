@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vibes — Wiki</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  background: #0d1117; color: #c9d1d9; line-height: 1.6; padding: 0;
+}
+a { color: #58a6ff; text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav {
+  background: #161b22; border-bottom: 1px solid #30363d; padding: 0 24px;
+  display: flex; gap: 24px; align-items: center; height: 56px; position: sticky; top: 0; z-index: 10;
+}
+nav .logo { font-weight: 700; font-size: 18px; color: #f0f6fc; }
+nav a { font-size: 14px; color: #8b949e; padding: 4px 0; }
+nav a:hover { color: #f0f6fc; text-decoration: none; }
+nav a.active { color: #f0f6fc; border-bottom: 2px solid #58a6ff; }
+main { max-width: 900px; margin: 0 auto; padding: 48px 24px; }
+h1 { font-size: 36px; font-weight: 700; margin-bottom: 8px; color: #f0f6fc; }
+h1 .subtitle { font-size: 16px; font-weight: 400; color: #8b949e; display: block; margin-top: 4px; }
+h2 { font-size: 24px; font-weight: 600; margin: 40px 0 16px; color: #f0f6fc; border-bottom: 1px solid #21262d; padding-bottom: 8px; }
+h3 { font-size: 18px; font-weight: 600; margin: 24px 0 12px; color: #f0f6fc; }
+p { margin-bottom: 16px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin: 24px 0; }
+.card {
+  background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; transition: border-color .2s;
+}
+.card:hover { border-color: #58a6ff; }
+.card h3 { margin: 0 0 8px; font-size: 16px; }
+.card p { margin: 0; font-size: 14px; color: #8b949e; }
+.card a { color: inherit; display: block; }
+.card a:hover { text-decoration: none; }
+pre {
+  background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 16px;
+  overflow-x: auto; font-size: 13px; font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  margin-bottom: 16px;
+}
+code { font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; background: #161b22; padding: 2px 6px; border-radius: 4px; }
+pre code { background: none; padding: 0; }
+.key { display: inline-block; background: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 1px 7px; font-size: 12px; font-family: 'JetBrains Mono', monospace; color: #f0f6fc; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #21262d; font-size: 14px; }
+th { font-weight: 600; color: #8b949e; text-transform: uppercase; font-size: 12px; letter-spacing: .05em; }
+tr:hover td { background: #161b22; }
+.tag {
+  display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+  letter-spacing: .03em; margin-right: 4px;
+}
+.tag-green { background: #1b3a2d; color: #7ee787; }
+.tag-blue { background: #1b2d47; color: #79c0ff; }
+.tag-yellow { background: #3d2e00; color: #d29922; }
+footer { text-align: center; padding: 32px; color: #484f58; font-size: 13px; border-top: 1px solid #21262d; margin-top: 48px; }
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">🌌 Vibes</span>
+  <a href="index.html" class="active">Home</a>
+  <a href="installation.html">Installation</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="usage.html">Usage</a>
+  <a href="architecture.html">Architecture</a>
+</nav>
+<main>
+  <h1>Vibes TUI <span class="subtitle">High-performance terminal UI for agentic coding workflows</span></h1>
+
+  <p>Vibes is an autonomous agent harness that runs in your terminal. It connects to local LLMs (Ollama, LM Studio) to plan and execute complex coding missions — breaking them into milestones, scheduling tasks with dependency resolution, and streaming results back in a rich TUI built with Ink & React.</p>
+
+  <div class="cards">
+    <div class="card"><a href="installation.html"><h3>🚀 Installation</h3><p>Install via curl, npm, or clone the repo — Linux, macOS, and Windows.</p></a></div>
+    <div class="card"><a href="configuration.html"><h3>⚙️ Configuration</h3><p>Environment variables, .vibes/config.json, settings UI, and model setup.</p></a></div>
+    <div class="card"><a href="usage.html"><h3>📖 Usage</h3><p>Creating missions, keyboard shortcuts, views, YOLO mode, and undo.</p></a></div>
+    <div class="card"><a href="architecture.html"><h3>🏗️ Architecture</h3><p>Agent loop, DAG scheduler, MCP, LTM, and code structure.</p></a></div>
+  </div>
+
+  <h2>Quick Start</h2>
+  <pre><code># Install globally
+npm install --global vibes-tui
+
+# Launch from any directory
+vibes</code></pre>
+
+  <p>Or try it without installing:</p>
+  <pre><code>npx vibes-tui</code></pre>
+
+  <h2>Prerequisites</h2>
+  <table>
+    <tr><th>Requirement</th><th>Details</th></tr>
+    <tr><td>Node.js</td><td>v22 or higher</td></tr>
+    <tr><td>Ollama / LM Studio</td><td>A running local LLM server with OpenAI-compatible API</td></tr>
+    <tr><td>Terminal</td><td>Modern terminal with UTF-8 support (kitty, iTerm2, Windows Terminal, etc.)</td></tr>
+  </table>
+
+  <h2>Feature Highlights</h2>
+  <table>
+    <tr><th>Feature</th><th>Description</th></tr>
+    <tr><td>Hierarchical mission planning</td><td>Break down high-level goals into milestones and tasks</td></tr>
+    <tr><td>DAG-based scheduler</td><td>Parallel task execution with dependency resolution</td></tr>
+    <tr><td>Multi-model support</td><td>Separate models for planning, execution, review, and triage</td></tr>
+    <tr><td>MCP protocol</td><td>Connect to external tools via stdio or SSE</td></tr>
+    <tr><td>Long-term memory</td><td>Persistent JSONL memory with optional Mem0 integration</td></tr>
+    <tr><td>Codex RAG</td><td>Neo4j knowledge graph augmentation for small models</td></tr>
+    <tr><td>Safety net</td><td>Auto-git snapshots, undo, thrash detection, YOLO mode</td></tr>
+  </table>
+</main>
+<footer>Vibes TUI — MIT License</footer>
+</body>
+</html>

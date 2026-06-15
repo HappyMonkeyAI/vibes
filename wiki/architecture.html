@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Architecture — Vibes Wiki</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;background:#0d1117;color:#c9d1d9;line-height:1.6;padding:0}
+a{color:#58a6ff;text-decoration:none}
+a:hover{text-decoration:underline}
+nav{background:#161b22;border-bottom:1px solid #30363d;padding:0 24px;display:flex;gap:24px;align-items:center;height:56px;position:sticky;top:0;z-index:10}
+nav .logo{font-weight:700;font-size:18px;color:#f0f6fc}
+nav a{font-size:14px;color:#8b949e;padding:4px 0}
+nav a:hover{color:#f0f6fc;text-decoration:none}
+nav a.active{color:#f0f6fc;border-bottom:2px solid #58a6ff}
+main{max-width:900px;margin:0 auto;padding:48px 24px}
+h1{font-size:32px;font-weight:700;margin-bottom:24px;color:#f0f6fc}
+h2{font-size:22px;font-weight:600;margin:36px 0 16px;color:#f0f6fc;border-bottom:1px solid #21262d;padding-bottom:8px}
+h3{font-size:17px;font-weight:600;margin:24px 0 12px;color:#f0f6fc}
+p{margin-bottom:16px}
+pre{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;overflow-x:auto;font-size:13px;font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;margin-bottom:16px}
+code{font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;font-size:13px;background:#161b22;padding:2px 6px;border-radius:4px}
+pre code{background:none;padding:0}
+table{width:100%;border-collapse:collapse;margin-bottom:24px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #21262d;font-size:14px}
+th{font-weight:600;color:#8b949e;text-transform:uppercase;font-size:12px;letter-spacing:.05em}
+tr:hover td{background:#161b22}
+.note{background:#161b22;border:1px solid #30363d;border-left:4px solid #58a6ff;border-radius:6px;padding:16px;margin-bottom:16px;font-size:14px}
+footer{text-align:center;padding:32px;color:#484f58;font-size:13px;border-top:1px solid #21262d;margin-top:48px}
+.tag{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:.03em;margin-right:4px}
+.tag-green{background:#1b3a2d;color:#7ee787}
+.tag-blue{background:#1b2d47;color:#79c0ff}
+.tag-yellow{background:#3d2e00;color:#d29922}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">🌌 Vibes</span>
+  <a href="index.html">Home</a>
+  <a href="installation.html">Installation</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="usage.html">Usage</a>
+  <a href="architecture.html" class="active">Architecture</a>
+</nav>
+<main>
+  <h1>🏗️ Architecture</h1>
+
+  <p>Vibes is a TypeScript application running on Node.js, using Ink 6 + React 19 for the terminal UI and the OpenAI SDK for LLM communication. The architecture follows a layered pattern: a React TUI layer communicates with an agent orchestration layer that manages LLM calls, tool execution, and persistence.</p>
+
+  <h2>Source Layout</h2>
+  <table>
+    <tr><th>Path</th><th>Purpose</th></tr>
+    <tr><td><code>src/index.tsx</code></td><td>Entry point, TUI root, keyboard shortcut registry, view routing</td></tr>
+    <tr><td><code>src/vibes-cli.ts</code></td><td>CLI entry point (bin script) — parses args, launches TUI</td></tr>
+    <tr><td><code>src/config.ts</code></td><td>Zod config schema, env + JSON merge, runtime <code>updateConfig()</code></td></tr>
+    <tr><td><code>src/agent/</code></td><td>Agent orchestration — planner, scheduler, executor, services</td></tr>
+    <tr><td><code>src/tui/</code></td><td>React Ink components and hooks</td></tr>
+    <tr><td><code>src/tools/</code></td><td>Zod-validated tool registry (read, write, edit, shell, etc.)</td></tr>
+    <tr><td><code>src/mcp/</code></td><td>Model Context Protocol — client, server, Codex RAG service</td></tr>
+    <tr><td><code>src/memory/</code></td><td>Long-term memory — local JSONL + optional Mem0</td></tr>
+    <tr><td><code>src/agents/</code></td><td>Multi-agent swarm orchestration (experimental)</td></tr>
+    <tr><td><code>src/ollama-client.ts</code></td><td>OpenAI SDK wrapper for Ollama/LM Studio backend</td></tr>
+  </table>
+
+  <h2>Agent Orchestration Layer</h2>
+
+  <h3>Mission Planner (<code>src/agent/mission-planner.ts</code>)</h3>
+  <p>Receives a user's natural language prompt and decomposes it into a structured plan: milestones → tasks with dependencies. Uses a dedicated planner model (or the main model if <code>PLANNER_MODEL</code> is empty). Performs tech-stack detection (one I/O scan of <code>package.json</code> + file tree) at plan time and attaches it to the mission.</p>
+
+  <h3>DAG Scheduler (<code>src/agent/scheduler.ts</code>)</h3>
+  <p>Manages task state with a directed acyclic graph. Tracks dependencies, runs ready tasks in parallel up to <code>MAX_CONCURRENT_TASKS</code>, discovers new tasks during execution, and handles human-in-the-loop interventions via promise-blocking. Interventions are resolved via a direct ref (not React state) to keep the agent loop "warm."</p>
+
+  <h3>Task Executor (<code>src/agent/task-executor.ts</code>)</h3>
+  <p>Per-task agent loop. For each task:</p>
+  <ol style="margin-bottom:16px;padding-left:24px">
+    <li style="margin-bottom:4px">Builds system prompt with Codex RAG context (if enabled), mission context, tech stack, and available tools</li>
+    <li style="margin-bottom:4px">Sends prompt to LLM, streams response</li>
+    <li style="margin-bottom:4px">Parses tool calls (native API or markdown fallback for models that can't render tool schemas)</li>
+    <li style="margin-bottom:4px">Executes tools, collects results, feeds back into the loop</li>
+    <li style="margin-bottom:4px">Detects thrash (consecutive identical tool sequences)</li>
+    <li style="margin-bottom:4px">Compresses messages when approaching token limit (hard cap at 150 messages)</li>
+    <li style="margin-bottom:4px">Runs structural audit on completion (stack-aware code quality checks)</li>
+  </ol>
+
+  <h3>Context Manager (<code>src/agent/context-manager.ts</code>)</h3>
+  <p>Token counting via gpt-tokenizer with LRU cache (512 entries). Message compression with optional force flag. Estimates token budget and truncates or compresses history to fit.</p>
+
+  <h3>Triage Agent (<code>src/agent/triage-agent.ts</code>)</h3>
+  <p>Optional pre-flight classifier that categorizes incoming tasks by domain, complexity, and risk. Can auto-steer the mission plan based on classification results. Configured via <code>TRIAGE_ENABLED</code> and <code>TRIAGE_INTERVAL</code>.</p>
+
+  <h2>Agent Loop Flow</h2>
+  <pre><code>User prompt
+    │
+    ▼
+Mission Planner ─── detects tech stack ─── produces milestones + tasks
+    │
+    ▼
+DAG Scheduler ─── resolves deps, dispatches ready tasks
+    │
+    ├── Task Executor (slot 1) ─── LLM loop ─── tools ─── review ─── audit
+    ├── Task Executor (slot 2) ─── LLM loop ─── tools ─── review ─── audit
+    │
+    ▼
+Completion ─── LTM update ─── next mission</code></pre>
+
+  <h2>TUI Layer</h2>
+  <p>Built with Ink 6 + React 19. The TUI is composed of:</p>
+  <table>
+    <tr><th>Component</th><th>File</th><th>Description</th></tr>
+    <tr><td>App (root)</td><td><code>src/index.tsx</code></td><td>Keyboard handler, view router, panel layout</td></tr>
+    <tr><td>Dashboard</td><td><code>src/tui/components/dashboard.tsx</code></td><td>Stats, progress bars, mission summary</td></tr>
+    <tr><td>Mission View</td><td><code>src/tui/components/trace-view.tsx</code></td><td>Tree of missions, milestones, tasks with status</td></tr>
+    <tr><td>Task View</td><td><code>src/tui/components/task-view.tsx</code></td><td>Live agent output, tool calls, reasoning</td></tr>
+    <tr><td>Settings</td><td><code>src/tui/components/settings-view.tsx</code></td><td>36-field config editor with Tab navigation</td></tr>
+    <tr><td>EnhancedTextInput</td><td><code>src/tui/components/enhanced-text-input.tsx</code></td><td>Custom Ink input with cursor/scroll support</td></tr>
+    <tr><td>Log Stream</td><td><code>src/tui/components/log-stream-view.tsx</code></td><td>Raw diagnostic log output</td></tr>
+    <tr><td>useMission</td><td><code>src/tui/hooks/use-mission.ts</code></td><td>React bridge to Scheduler ref</td></tr>
+  </table>
+
+  <div class="note"><strong>Key pattern:</strong> The agent Scheduler is held as a React ref, not state. This allows the TUI to display progress without re-rendering causing cursor jumps in <code>@inkjs/ui</code> inputs.</div>
+
+  <h2>MCP Layer</h2>
+  <table>
+    <tr><th>File</th><th>Purpose</th></tr>
+    <tr><td><code>src/mcp/mcp-service.ts</code></td><td>MCP client manager — loads <code>.vibes/mcp.json</code>, spawns subprocesses, manages lifecycle. Supports stdio and SSE transports.</td></tr>
+    <tr><td><code>src/mcp/server.ts</code></td><td>FastMCP-based MCP server — exposes Vibes tools to external MCP clients</td></tr>
+    <tr><td><code>src/mcp/codex-service.ts</code></td><td>Neo4j RAG — calls <code>codex_search.py</code> via subprocess, retries with fallback hosts, 5-min circuit breaker on connection failure</td></tr>
+  </table>
+
+  <h2>Memory Layer</h2>
+  <table>
+    <tr><th>File</th><th>Purpose</th></tr>
+    <tr><td><code>src/memory/memory-service.ts</code></td><td>LTM gateway — pre-task enrichment, post-task synthesis, memory reconciliation</td></tr>
+    <tr><td><code>src/memory/local-memory.ts</code></td><td>Local JSONL persistence — zero-dependency, atomic writes via temp+rename</td></tr>
+  </table>
+  <p>Memory is stored at <code>.antigravity/memories/</code> in three categories:</p>
+  <ul style="margin-bottom:16px;padding-left:24px">
+    <li style="margin-bottom:4px"><span class="tag tag-blue">Semantic</span> — <code>codebase_insights/</code>, <code>architectural_decisions/</code></li>
+    <li style="margin-bottom:4px"><span class="tag tag-green">Procedural</span> — <code>patterns_and_lessons.md</code></li>
+    <li style="margin-bottom:4px"><span class="tag tag-yellow">Episodic</span> — <code>history/</code> (plan/walkthrough archives, handoffs)</li>
+  </ul>
+
+  <h2>Config System</h2>
+  <p>Configuration flows through a Zod schema (<code>src/config.ts</code>) with 37 fields. Sources merge in this order:</p>
+  <pre><code>Zod defaults ← .env ← .vibes/config.json ← runtime UI edits</code></pre>
+  <p>The <code>config</code> object is a singleton mutated in-place via <code>Object.assign</code> by <code>updateConfig()</code>. Modules import <code>config</code> directly and read fields at call-time (never destructured at module level to avoid stale references).</p>
+
+  <h2>Safety Systems</h2>
+  <ul style="margin-bottom:16px;padding-left:24px">
+    <li style="margin-bottom:6px"><strong>Auto-git snapshots</strong> — pre-mission git commit for undo capability</li>
+    <li style="margin-bottom:6px"><strong>Thrash detection</strong> — consecutive identical turn tool sequences trigger pause</li>
+    <li style="margin-bottom:6px"><strong>YOLO mode</strong> — bypasses safety limits when user explicitly enables it</li>
+    <li style="margin-bottom:6px"><strong>Message hard cap</strong> (150) — prevents OOM in long-running agent loops</li>
+    <li style="margin-bottom:6px"><strong>Codex circuit breaker</strong> — 5-min backoff on Neo4j connection failure</li>
+    <li style="margin-bottom:6px"><strong>Structural audit</strong> — stack-aware code quality checks after each task</li>
+  </ul>
+</main>
+<footer>Vibes TUI — MIT License</footer>
+</body>
+</html>

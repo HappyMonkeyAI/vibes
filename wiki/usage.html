@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Usage — Vibes Wiki</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;background:#0d1117;color:#c9d1d9;line-height:1.6;padding:0}
+a{color:#58a6ff;text-decoration:none}
+a:hover{text-decoration:underline}
+nav{background:#161b22;border-bottom:1px solid #30363d;padding:0 24px;display:flex;gap:24px;align-items:center;height:56px;position:sticky;top:0;z-index:10}
+nav .logo{font-weight:700;font-size:18px;color:#f0f6fc}
+nav a{font-size:14px;color:#8b949e;padding:4px 0}
+nav a:hover{color:#f0f6fc;text-decoration:none}
+nav a.active{color:#f0f6fc;border-bottom:2px solid #58a6ff}
+main{max-width:900px;margin:0 auto;padding:48px 24px}
+h1{font-size:32px;font-weight:700;margin-bottom:24px;color:#f0f6fc}
+h2{font-size:22px;font-weight:600;margin:36px 0 16px;color:#f0f6fc;border-bottom:1px solid #21262d;padding-bottom:8px}
+h3{font-size:17px;font-weight:600;margin:24px 0 12px;color:#f0f6fc}
+p{margin-bottom:16px}
+pre{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;overflow-x:auto;font-size:13px;font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;margin-bottom:16px}
+code{font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;font-size:13px;background:#161b22;padding:2px 6px;border-radius:4px}
+pre code{background:none;padding:0}
+kbd{display:inline-block;background:#21262d;border:1px solid #30363d;border-radius:4px;padding:1px 7px;font-size:12px;font-family:'JetBrains Mono',monospace;color:#f0f6fc}
+table{width:100%;border-collapse:collapse;margin-bottom:24px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #21262d;font-size:14px}
+th{font-weight:600;color:#8b949e;text-transform:uppercase;font-size:12px;letter-spacing:.05em}
+tr:hover td{background:#161b22}
+.note{background:#161b22;border:1px solid #30363d;border-left:4px solid #58a6ff;border-radius:6px;padding:16px;margin-bottom:16px;font-size:14px}
+footer{text-align:center;padding:32px;color:#484f58;font-size:13px;border-top:1px solid #21262d;margin-top:48px}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">🌌 Vibes</span>
+  <a href="index.html">Home</a>
+  <a href="installation.html">Installation</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="usage.html" class="active">Usage</a>
+  <a href="architecture.html">Architecture</a>
+</nav>
+<main>
+  <h1>📖 Usage Guide</h1>
+
+  <h2>Launching Vibes</h2>
+  <pre><code># If installed globally
+vibes
+
+# Via npx (no install)
+npx vibes-tui
+
+# Development mode (from repo)
+cd vibes && npm run dev</code></pre>
+  <p>Vibes automatically sets its workspace root to the current directory. Files you ask the agent to read/write/edit are relative to this root.</p>
+
+  <h2>Views</h2>
+  <p>Vibes has four main views, switchable with keyboard shortcuts:</p>
+  <table>
+    <tr><th>Key</th><th>View</th><th>Description</th></tr>
+    <tr><td><kbd>Alt+D</kbd></td><td><strong>Dashboard</strong></td><td>High-level progress, statistics, current mission status</td></tr>
+    <tr><td><kbd>Alt+M</kbd></td><td><strong>Missions</strong></td><td>Tree view of missions, milestones, and tasks with dependency graph</td></tr>
+    <tr><td><kbd>Alt+T</kbd></td><td><strong>Tasks</strong></td><td>Live agent output — tool calls, streaming responses, reasoning traces</td></tr>
+    <tr><td><kbd>Alt+S</kbd></td><td><strong>Settings</strong></td><td>Real-time configuration panel (model, limits, features, memory)</td></tr>
+  </table>
+
+  <h2>Creating a Mission</h2>
+  <p>Press <kbd>Alt+N</kbd> to open the mission prompt. Describe what you want built:</p>
+  <pre><code>Create a React loading skeleton component with shimmer animation, variant shapes,
+and Suspense integration
+
+Create a REST API with Express that has CRUD endpoints for tasks, input validation,
+and SQLite storage</code></pre>
+  <ol style="margin-bottom:24px;padding-left:24px">
+    <li style="margin-bottom:8px">Type your mission description and press <kbd>Enter</kbd></li>
+    <li style="margin-bottom:8px">Vibes' planner decomposes it into milestones and tasks (shows you the plan)</li>
+    <li style="margin-bottom:8px">The scheduler begins executing tasks — results stream into the Task View</li>
+    <li style="margin-bottom:8px">Use <kbd>Alt+M</kbd> to see task progress and dependency resolution</li>
+  </ol>
+  <div class="note"><strong>Tip:</strong> For independent work, craft missions whose tasks don't share file dependencies — the DAG scheduler will run them in parallel.</div>
+
+  <h2>Keyboard Shortcuts</h2>
+  <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td><kbd>Alt+D</kbd></td><td>Switch to Dashboard</td></tr>
+    <tr><td><kbd>Alt+M</kbd></td><td>Switch to Missions view</td></tr>
+    <tr><td><kbd>Alt+T</kbd></td><td>Switch to Tasks view</td></tr>
+    <tr><td><kbd>Alt+S</kbd></td><td>Open Settings panel</td></tr>
+    <tr><td><kbd>Alt+N</kbd></td><td>Create a new mission</td></tr>
+    <tr><td><kbd>Alt+Z</kbd></td><td>Undo last mission (git hard-reset to pre-mission snapshot)</td></tr>
+    <tr><td><kbd>Alt+Y</kbd></td><td>Toggle YOLO mode on/off</td></tr>
+    <tr><td><kbd>Alt+X</kbd></td><td>Dismiss update notification</td></tr>
+    <tr><td><kbd>Ctrl+Q</kbd></td><td>Quit Vibes</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>Cycle focus between panels</td></tr>
+  </table>
+
+  <h2>YOLO Mode</h2>
+  <p>YOLO mode disables safety limits — the agent can run beyond <code>MAX_STEPS</code> and won't pause for thrash detection. Useful for long-running autonomous sessions.</p>
+  <ul style="margin-bottom:16px;padding-left:24px">
+    <li style="margin-bottom:6px">Toggle at runtime with <kbd>Alt+Y</kbd></li>
+    <li style="margin-bottom:6px">Default state is controlled by the <code>YOLO_MODE</code> config setting</li>
+    <li style="margin-bottom:6px">The setting panel shows current YOLO mode status</li>
+  </ul>
+
+  <h2>Safety Net: Undo</h2>
+  <p>Vibes automatically takes a git snapshot before every mission. If the agent makes a mess:</p>
+  <ol style="margin-bottom:16px;padding-left:24px">
+    <li style="margin-bottom:6px">Switch to any view</li>
+    <li style="margin-bottom:6px">Press <kbd>Alt+Z</kbd></li>
+    <li style="margin-bottom:6px">The workspace is hard-reset to the pre-mission state</li>
+  </ol>
+
+  <h2>Agent Loop Lifecycle</h2>
+  <p>Each task goes through these stages visible in the Task View:</p>
+  <ol style="margin-bottom:24px;padding-left:24px">
+    <li style="margin-bottom:6px"><strong>Planning</strong> — executor receives task context and system prompt</li>
+    <li style="margin-bottom:6px"><strong>Thinking</strong> — model generates reasoning (shown if THINKING_MODE is on)</li>
+    <li style="margin-bottom:6px"><strong>Tool calls</strong> — agent invokes tools (read, write, edit, grep, glob, shell, etc.)</li>
+    <li style="margin-bottom:6px"><strong>Review</strong> — if ENABLE_REVIEWER is on, reviewer model audits the output</li>
+    <li style="margin-bottom:6px"><strong>Structural audit</strong> — stack-aware code quality checks (TypeScript, React, Python, etc.)</li>
+    <li style="margin-bottom:6px"><strong>Complete</strong> — task marked done, scheduler triggers dependent tasks</li>
+  </ol>
+
+  <h2>Agent Tools</h2>
+  <p>The agent has access to these built-in tools:</p>
+  <table>
+    <tr><th>Tool</th><th>Description</th></tr>
+    <tr><td><code>read</code></td><td>Read file contents with optional offset/limit</td></tr>
+    <tr><td><code>write</code></td><td>Write or overwrite a file</td></tr>
+    <tr><td><code>edit</code></td><td>Apply scoped string replacement (surgical edits)</td></tr>
+    <tr><td><code>glob</code></td><td>Find files by name pattern</td></tr>
+    <tr><td><code>grep</code></td><td>Search file contents by regex</td></tr>
+    <tr><td><code>bash</code></td><td>Execute shell commands (with stderr capture)</td></tr>
+    <tr><td><code>websearch</code></td><td>Web search and fetch (if configured)</td></tr>
+  </table>
+  <p>Additional tools from MCP servers (GitHub, Perplexity, Neo4j, etc.) are dynamically loaded from <code>.vibes/mcp.json</code>.</p>
+
+  <h2>Update Notifications</h2>
+  <p>Vibes checks the npm registry for updates on launch. If a new version is available, a notification appears in the TUI. Press <kbd>Alt+X</kbd> to dismiss it.</p>
+
+  <h2>Tips & Tricks</h2>
+  <ul style="margin-bottom:16px;padding-left:24px">
+    <li style="margin-bottom:6px">Use <strong>clear, specific mission prompts</strong> — the planner works best with concrete deliverables</li>
+    <li style="margin-bottom:6px">For <strong>large refactors</strong>, break the work into sequential missions (the planner will respect file dependencies)</li>
+    <li style="margin-bottom:6px">The <strong>Settings panel</strong> (<kbd>Alt+S</kbd>) lets you change models and toggles at runtime — no restart needed</li>
+    <li style="margin-bottom:6px"><strong>YOLO mode</strong> is useful for overnight unattended runs, but watch for thrashing</li>
+    <li style="margin-bottom:6px">Check <code>.antigravity/memories/patterns_and_lessons.md</code> for institutional knowledge the agent has accumulated</li>
+  </ul>
+</main>
+<footer>Vibes TUI — MIT License</footer>
+</body>
+</html>
