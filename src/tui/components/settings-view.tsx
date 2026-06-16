@@ -1,12 +1,11 @@
 import React from 'react';
-import { Box, Text, useInput } from 'ink';
-import { TextInput, Select } from '@inkjs/ui';
+import { Box, Text, useInput, useStdout } from 'ink';
+import { EnhancedTextInput } from './enhanced-text-input.js';
 
 type SettingsShape = Record<string, string | number | boolean>;
 
 interface SettingsViewProps {
   settings: SettingsShape;
-  availableModels: string[];
   onSave: (updates: Partial<SettingsShape>) => void;
   onClose: () => void;
   onToggleYoloMode?: (enabled: boolean) => void;
@@ -20,39 +19,70 @@ interface FieldDefinition {
   type: FieldType;
 }
 
+const SELECT_OPTIONS: Record<string, string[]> = {
+  DATA_SHARING_MODE: ['none', 'workspace', 'full'],
+  TOOL_EXECUTION_MODE: ['sequential', 'parallel'],
+};
+
+const FIELDS: FieldDefinition[] = [
+  { label: 'Ollama Model', key: 'OLLAMA_MODEL', type: 'text' },
+  { label: 'Base URL', key: 'OLLAMA_BASE_URL', type: 'text' },
+  { label: 'API Key', key: 'OLLAMA_API_KEY', type: 'text' },
+  { label: 'Planner Model', key: 'PLANNER_MODEL', type: 'text' },
+  { label: 'Planner Base URL', key: 'PLANNER_BASE_URL', type: 'text' },
+  { label: 'Planner API Key', key: 'PLANNER_API_KEY', type: 'text' },
+  { label: 'Reviewer Model', key: 'REVIEWER_MODEL', type: 'text' },
+  { label: 'Reviewer Base URL', key: 'REVIEWER_BASE_URL', type: 'text' },
+  { label: 'Reviewer API Key', key: 'REVIEWER_API_KEY', type: 'text' },
+  { label: 'Triage Model', key: 'TRIAGE_MODEL', type: 'text' },
+  { label: 'Triage Base URL', key: 'TRIAGE_BASE_URL', type: 'text' },
+  { label: 'Triage API Key', key: 'TRIAGE_API_KEY', type: 'text' },
+  { label: 'Context Window', key: 'CONTEXT_WINDOW', type: 'number' },
+  { label: 'Max Steps', key: 'MAX_STEPS', type: 'number' },
+  { label: 'Max Concurrent Tasks', key: 'MAX_CONCURRENT_TASKS', type: 'number' },
+  { label: 'Reasoning Mode', key: 'THINKING_MODE', type: 'boolean' },
+  { label: 'Default YOLO Mode', key: 'YOLO_MODE', type: 'boolean' },
+  { label: 'Tool Execution Mode', key: 'TOOL_EXECUTION_MODE', type: 'select' },
+  { label: 'Data Sharing Mode', key: 'DATA_SHARING_MODE', type: 'select' },
+  { label: 'Context Compaction', key: 'CONTEXT_COMPACTION_ENABLED', type: 'boolean' },
+  { label: 'Enable Structural Audit', key: 'ENABLE_STRUCTURAL_AUDIT', type: 'boolean' },
+  { label: 'Enable Adversarial Audit', key: 'ENABLE_ADVERSARIAL_AUDIT', type: 'boolean' },
+  { label: 'Enable Coder-Reviewer Swarm', key: 'ENABLE_REVIEWER', type: 'boolean' },
+  { label: 'Agent Hooks', key: 'AGENT_HOOKS', type: 'boolean' },
+  { label: 'Multi-Agent Enabled', key: 'MULTI_AGENT_ENABLED', type: 'boolean' },
+  { label: 'Memory Enabled', key: 'MEMORY_ENABLED', type: 'boolean' },
+  { label: 'Local Memory', key: 'LOCAL_MEMORY', type: 'boolean' },
+  { label: 'Memory User ID', key: 'MEMORY_USER_ID', type: 'text' },
+  { label: 'Triage Observer', key: 'TRIAGE_ENABLED', type: 'boolean' },
+  { label: 'Triage Interval (tasks)', key: 'TRIAGE_INTERVAL', type: 'number' },
+  { label: 'Triage Auto-Steer', key: 'TRIAGE_AUTO_STEER', type: 'boolean' },
+  { label: 'Codex RAG', key: 'CODEX_ENABLED', type: 'boolean' },
+  { label: 'Codex Top-K', key: 'CODEX_TOP_K', type: 'number' },
+  { label: 'Codex Script Path', key: 'CODEX_SCRIPT_PATH', type: 'text' },
+  { label: 'Codex Python Path', key: 'CODEX_PYTHON_PATH', type: 'text' },
+  { label: 'Trace Directory', key: 'TRACE_DIR', type: 'text' },
+];
+
+const SETTINGS_CHROME_ROWS = 15;
+
+export function getSettingsViewportSize(terminalRows: number): number {
+  return Math.max(1, Math.min(FIELDS.length, terminalRows - SETTINGS_CHROME_ROWS));
+}
+
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
-  availableModels,
   onSave,
   onClose,
   onToggleYoloMode,
 }) => {
+  const { stdout } = useStdout();
   const [focusIndex, setFocusIndex] = React.useState(0);
   const [tempSettings, setTempSettings] = React.useState(settings);
-  const [draftValues, setDraftValues] = React.useState<Record<string, string>>({});
+  const draftValuesRef = React.useRef<Record<string, string>>({});
   const [status, setStatus] = React.useState<'idle' | 'saved'>('idle');
 
-  const fields: FieldDefinition[] = [
-    { label: 'Ollama Model', key: 'OLLAMA_MODEL', type: 'select' },
-    { label: 'Planner Model (empty = same)', key: 'PLANNER_MODEL', type: 'text' },
-    { label: 'Base URL', key: 'OLLAMA_BASE_URL', type: 'text' },
-    { label: 'API Key', key: 'OLLAMA_API_KEY', type: 'text' },
-    { label: 'Context Window', key: 'CONTEXT_WINDOW', type: 'number' },
-    { label: 'Max Steps', key: 'MAX_STEPS', type: 'number' },
-    { label: 'Reasoning Mode', key: 'THINKING_MODE', type: 'boolean' },
-    { label: 'Default YOLO Mode', key: 'YOLO_MODE', type: 'boolean' },
-    { label: 'Max Concurrent Tasks', key: 'MAX_CONCURRENT_TASKS', type: 'number' },
-    { label: 'Enable Coder-Reviewer Swarm', key: 'ENABLE_REVIEWER', type: 'boolean' },
-    { label: 'Reviewer Model', key: 'REVIEWER_MODEL', type: 'select' },
-    { label: 'Memory Enabled', key: 'MEMORY_ENABLED', type: 'boolean' },
-    { label: 'Local Memory', key: 'LOCAL_MEMORY', type: 'boolean' },
-    { label: 'Memory User ID', key: 'MEMORY_USER_ID', type: 'text' },
-  ];
-
-  // Sync tempSettings when the parent settings prop changes.
-  React.useEffect(() => {
-    setTempSettings(settings);
-  }, [settings]);
+  // Removed the auto-sync useEffect that forces tempSettings to reset 
+  // on every keystroke save, causing the draft input state to jump.
 
   const handleSave = (key: keyof SettingsShape, value: SettingsShape[keyof SettingsShape]) => {
     const updated = { ...tempSettings, [key]: value };
@@ -62,12 +92,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const saveCurrentDraft = () => {
-    const currentField = fields[focusIndex];
+    const currentField = FIELDS[focusIndex];
     if (!currentField || (currentField.type !== 'text' && currentField.type !== 'number')) return;
-    const draft = draftValues[currentField.key];
+    const draft = draftValuesRef.current[currentField.key];
     if (draft === undefined || draft === String(tempSettings[currentField.key] ?? '')) return;
     const parsed = currentField.type === 'number' ? Number(draft) : draft;
     handleSave(currentField.key, parsed);
+    delete draftValuesRef.current[currentField.key];
   };
 
   useInput((input, pressedKey) => {
@@ -78,17 +109,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
     if (pressedKey.tab && !pressedKey.shift) {
       saveCurrentDraft();
-      setFocusIndex((prev) => (prev + 1) % fields.length);
+      setFocusIndex((prev) => (prev + 1) % FIELDS.length);
       setStatus('idle');
     }
 
     if (pressedKey.shift && pressedKey.tab) {
       saveCurrentDraft();
-      setFocusIndex((prev) => (prev - 1 + fields.length) % fields.length);
+      setFocusIndex((prev) => (prev - 1 + FIELDS.length) % FIELDS.length);
       setStatus('idle');
     }
 
-    const currentField = fields[focusIndex];
+    const currentField = FIELDS[focusIndex];
     if (currentField?.type === 'boolean' && (input === ' ' || pressedKey.return)) {
       const fieldKey = currentField.key;
       const newVal = !Boolean(tempSettings[fieldKey]);
@@ -97,82 +128,101 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         onToggleYoloMode(newVal);
       }
     }
+
+    if (currentField?.type === 'select') {
+      const options = SELECT_OPTIONS[currentField.key];
+      if (options && (pressedKey.leftArrow || pressedKey.rightArrow)) {
+        const currentIdx = options.indexOf(String(tempSettings[currentField.key] ?? options[0]));
+        const delta = pressedKey.rightArrow ? 1 : -1;
+        const nextIdx = (currentIdx + delta + options.length) % options.length;
+        handleSave(currentField.key, options[nextIdx]);
+      }
+    }
   });
 
-  const modelOptions = availableModels.length > 0
-    ? availableModels.map((model) => ({ label: model, value: model }))
-    : [{ label: String(settings.OLLAMA_MODEL), value: String(settings.OLLAMA_MODEL) }];
+  const maxVisible = getSettingsViewportSize(stdout.rows || 24);
+  const inputWidth = Math.max(8, (stdout.columns || 80) - 35);
+  const [startIdx, setStartIdx] = React.useState(0);
+
+  // Maintain a stable scrolling window that only shifts when focus hits the edges
+  React.useEffect(() => {
+    if (focusIndex < startIdx) {
+      setStartIdx(focusIndex);
+    } else if (focusIndex >= startIdx + maxVisible) {
+      setStartIdx(focusIndex - maxVisible + 1);
+    }
+  }, [focusIndex, startIdx, maxVisible]);
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" padding={1}>
       <Box justifyContent="space-between" marginBottom={1}>
         <Text bold color="cyan">⚙️ SETTINGS</Text>
-        <Text color="gray">[Tab] Navigate | [Space/Enter] Toggle | [Alt+S/Esc] Close</Text>
+        <Text color="gray">[Tab] Navigate | [Space/Enter] Toggle | [←/→] Select | [Alt+S/Esc] Close</Text>
       </Box>
 
-      {fields.map((field, index) => (
-        <Box key={field.key} flexDirection="column" marginBottom={1}>
-          <Box gap={1}>
-            <Text color={focusIndex === index ? 'cyan' : 'white'} bold={focusIndex === index}>
-              {focusIndex === index ? '●' : '○'} {field.label}:
-            </Text>
-          </Box>
+      {FIELDS.map((field, index) => {
+        if (index < startIdx || index >= startIdx + maxVisible) return null;
 
-          <Box paddingX={1}>
-            {field.type === 'select' && focusIndex === index ? (
-              <Select
-                options={modelOptions}
-                defaultValue={String(tempSettings[field.key] ?? '')}
-                onChange={(val) => {
-                  if (val !== tempSettings[field.key]) {
-                    handleSave(field.key, val);
-                  }
-                }}
-              />
-            ) : field.type === 'select' ? (
-              <Text color="gray">{String(tempSettings[field.key] ?? '')}</Text>
-            ) : null}
+        const isFocused = focusIndex === index;
+        const currentValue = String(tempSettings[field.key] ?? '');
 
-            {field.type === 'number' && focusIndex === index ? (
-              <Box borderStyle="single" borderColor="cyan" paddingX={1}>
-                <TextInput
-                  defaultValue={String(tempSettings[field.key] ?? '')}
-                  onChange={(val) => setDraftValues(prev => ({ ...prev, [field.key]: val }))}
-                  onSubmit={(val) => handleSave(field.key, Number(val))}
-                />
-              </Box>
-            ) : field.type === 'number' ? (
-              <Text color="gray">{String(tempSettings[field.key] ?? '')}</Text>
-            ) : null}
-
-            {field.type === 'text' && focusIndex === index ? (
-              <Box borderStyle="single" borderColor="cyan" paddingX={1}>
-                <TextInput
-                  defaultValue={String(tempSettings[field.key] ?? '')}
-                  onChange={(val) => setDraftValues(prev => ({ ...prev, [field.key]: val }))}
-                  onSubmit={(val) => handleSave(field.key, val)}
-                />
-              </Box>
-            ) : field.type === 'text' ? (
-              <Text color="gray">
-                {field.key === 'OLLAMA_API_KEY' ? '********' : String(tempSettings[field.key] ?? '')}
+        return (
+          <Box key={field.key}>
+            <Box width={31}>
+              <Text color={isFocused ? 'cyan' : 'white'} bold={isFocused}>
+                {isFocused ? '●' : '○'} {field.label}:
               </Text>
-            ) : null}
+            </Box>
 
-            {field.type === 'boolean' && (
-              <Text color={tempSettings[field.key] ? 'green' : 'red'}>
-                {tempSettings[field.key] ? '[ ENABLED ]' : '[ DISABLED ]'}
-              </Text>
-            )}
+            <Box flexGrow={1}>
+              {(field.type === 'text' || field.type === 'number') && isFocused ? (
+                <Box flexDirection="row">
+                  <Text color="cyan">❯ </Text>
+                  <EnhancedTextInput
+                    defaultValue={currentValue}
+                    maxWidth={inputWidth}
+                    onChange={(value) => {
+                      draftValuesRef.current[field.key] = value;
+                    }}
+                    onSubmit={(val) => {
+                      handleSave(field.key, field.type === 'number' ? Number(val) : val);
+                      delete draftValuesRef.current[field.key];
+                    }}
+                  />
+                </Box>
+              ) : field.type === 'text' ? (
+                <Box>
+                  <Text color="gray">
+                    {field.key.includes('API_KEY')
+                      ? '********'
+                      : currentValue || (field.key.includes('MODEL') && field.key !== 'OLLAMA_MODEL' ? 'Same as main' : '')}
+                  </Text>
+                </Box>
+              ) : field.type === 'number' ? (
+                <Text color="gray">{currentValue}</Text>
+              ) : field.type === 'select' ? (
+                <Box>
+                  <Text color={isFocused ? 'cyan' : 'yellow'}>
+                    {isFocused ? '◀ ' : ''}{currentValue}{isFocused ? ' ▶' : ''}
+                  </Text>
+                </Box>
+              ) : (
+                <Box>
+                  <Text color={tempSettings[field.key] ? 'green' : 'red'}>
+                    {tempSettings[field.key] ? '[ ENABLED ]' : '[ DISABLED ]'}
+                  </Text>
+                </Box>
+              )}
+            </Box>
           </Box>
-        </Box>
-      ))}
+        );
+      })}
 
-      {status === 'saved' && (
-        <Box marginTop={1}>
-          <Text color="green">✓ Settings saved and persisted to .vibes/config.json.</Text>
-        </Box>
-      )}
+      <Box marginTop={1} height={1}>
+        <Text color={status === 'saved' ? 'green' : undefined}>
+          {status === 'saved' ? '✓ Settings saved and persisted to .vibes/config.json.' : ' '}
+        </Text>
+      </Box>
     </Box>
   );
 };

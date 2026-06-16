@@ -5,10 +5,14 @@ import path from 'path';
 
 dotenv.config();
 
-const ConfigSchema = z.object({
+const OptionalUrlSchema = z.string().url().or(z.literal('')).default('');
+
+export const ConfigSchema = z.object({
   OLLAMA_BASE_URL: z.string().url().default('http://localhost:11434/v1'),
   OLLAMA_MODEL: z.string().default('gemma2:9b'),
   PLANNER_MODEL: z.string().default(''),
+  PLANNER_BASE_URL: OptionalUrlSchema,
+  PLANNER_API_KEY: z.string().default(''),
   OLLAMA_API_KEY: z.string().default('ollama'),
   CONTEXT_WINDOW: z.coerce.number().default(32768),
   MAX_STEPS: z.coerce.number().default(25),
@@ -16,6 +20,8 @@ const ConfigSchema = z.object({
   MAX_CONCURRENT_TASKS: z.coerce.number().default(1),
   ENABLE_REVIEWER: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(true),
   REVIEWER_MODEL: z.string().default('gemma2:27b'),
+  REVIEWER_BASE_URL: OptionalUrlSchema,
+  REVIEWER_API_KEY: z.string().default(''),
   MEMORY_ENABLED: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   MEMORY_USER_ID: z.string().default('default'),
   MULTI_AGENT_ENABLED: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
@@ -25,13 +31,21 @@ const ConfigSchema = z.object({
   TOOL_EXECUTION_MODE: z.enum(['sequential', 'parallel']).default('sequential'),
   CONTEXT_COMPACTION_ENABLED: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(true),
   TRACE_DIR: z.string().optional(),
+  TRIAGE_ENABLED: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
+  TRIAGE_MODEL: z.string().default(''),
+  TRIAGE_BASE_URL: OptionalUrlSchema,
+  TRIAGE_API_KEY: z.string().default(''),
+  TRIAGE_INTERVAL: z.coerce.number().default(5),
+  TRIAGE_AUTO_STEER: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   LOCAL_MEMORY: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
   CODEX_ENABLED: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   CODEX_TOP_K: z.coerce.number().default(3),
   ENABLE_STRUCTURAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   ENABLE_ADVERSARIAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
+  ENABLE_NATIVE_TOOLS: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   CODEX_SCRIPT_PATH: z.string().default(''),
   CODEX_PYTHON_PATH: z.string().default(''),
+  ENABLE_CONTEXT_RECONSTRUCTION: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

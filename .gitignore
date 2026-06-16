@@ -31,8 +31,14 @@ Thumbs.db
 # Project Specific
 src/**/*.js
 src/**/*.d.ts
-AGENTS.md
 PLAN.md
+
+# Multi-agent coordination runtime state
+.agent-manifest.json
+.agent-status.md
+.agent-session.json
+.agent-tasks.json
+.agent-tasks.json.tmp
 
 # Vibes Agent
 .vibes/
@@ -43,3 +49,5 @@ deploy/
 test3/app.js
 test3/styles.css
 response/index.html
+gdrive/
+scripts/

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Configuration — Vibes Wiki</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;background:#0d1117;color:#c9d1d9;line-height:1.6;padding:0}
+a{color:#58a6ff;text-decoration:none}
+a:hover{text-decoration:underline}
+nav{background:#161b22;border-bottom:1px solid #30363d;padding:0 24px;display:flex;gap:24px;align-items:center;height:56px;position:sticky;top:0;z-index:10}
+nav .logo{font-weight:700;font-size:18px;color:#f0f6fc}
+nav a{font-size:14px;color:#8b949e;padding:4px 0}
+nav a:hover{color:#f0f6fc;text-decoration:none}
+nav a.active{color:#f0f6fc;border-bottom:2px solid #58a6ff}
+main{max-width:900px;margin:0 auto;padding:48px 24px}
+h1{font-size:32px;font-weight:700;margin-bottom:24px;color:#f0f6fc}
+h2{font-size:22px;font-weight:600;margin:36px 0 16px;color:#f0f6fc;border-bottom:1px solid #21262d;padding-bottom:8px}
+h3{font-size:17px;font-weight:600;margin:24px 0 12px;color:#f0f6fc}
+p{margin-bottom:16px}
+pre{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;overflow-x:auto;font-size:13px;font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;margin-bottom:16px}
+code{font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;font-size:13px;background:#161b22;padding:2px 6px;border-radius:4px}
+pre code{background:none;padding:0}
+table{width:100%;border-collapse:collapse;margin-bottom:24px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #21262d;font-size:14px}
+th{font-weight:600;color:#8b949e;text-transform:uppercase;font-size:12px;letter-spacing:.05em}
+tr:hover td{background:#161b22}
+.note{background:#161b22;border:1px solid #30363d;border-left:4px solid #58a6ff;border-radius:6px;padding:16px;margin-bottom:16px;font-size:14px}
+footer{text-align:center;padding:32px;color:#484f58;font-size:13px;border-top:1px solid #21262d;margin-top:48px}
+.tag{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:.03em;margin-right:4px}
+.tag-green{background:#1b3a2d;color:#7ee787}
+.tag-blue{background:#1b2d47;color:#79c0ff}
+.tag-yellow{background:#3d2e00;color:#d29922}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">🌌 Vibes</span>
+  <a href="index.html">Home</a>
+  <a href="installation.html">Installation</a>
+  <a href="configuration.html" class="active">Configuration</a>
+  <a href="usage.html">Usage</a>
+  <a href="architecture.html">Architecture</a>
+</nav>
+<main>
+  <h1>⚙️ Configuration</h1>
+
+  <p>Vibes reads configuration from two sources, merged in order (later overrides earlier):</p>
+  <ol style="margin-bottom:24px;padding-left:24px">
+    <li style="margin-bottom:6px"><strong>Environment variables</strong> (from <code>.env</code> file or shell env) — provides defaults</li>
+    <li style="margin-bottom:6px"><strong><code>.vibes/config.json</code></strong> — user-saved settings from the TUI Settings panel</li>
+  </ol>
+
+  <div class="note">Values are merged using Zod validation. Every setting has a sensible default — you only need to set what you want to override.</div>
+
+  <h2>Quick Start Config</h2>
+  <p>Create a <code>.env</code> file in the directory where you launch Vibes:</p>
+  <pre><code>OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=gemma2:9b
+OLLAMA_API_KEY=ollama
+CONTEXT_WINDOW=32768</code></pre>
+  <p>Then launch <code>vibes</code> and press <kbd>Alt+S</kbd> to fine-tune everything else in the TUI Settings panel.</p>
+
+  <h2>All Configuration Options</h2>
+
+  <h3>🔌 Connection</h3>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>OLLAMA_BASE_URL</code></td><td><code>http://localhost:11434/v1</code></td><td>LLM API endpoint (Ollama, LM Studio, or any OpenAI-compatible server)</td></tr>
+    <tr><td><code>OLLAMA_MODEL</code></td><td><code>gemma2:9b</code></td><td>Primary model for task execution</td></tr>
+    <tr><td><code>OLLAMA_API_KEY</code></td><td><code>ollama</code></td><td>API key (Ollama ignores this; LM Studio may require one)</td></tr>
+  </table>
+
+  <h3>🧠 Model Roles</h3>
+  <p>You can assign different models for different stages. Leave a field blank to fall back to <code>OLLAMA_MODEL</code>.</p>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Role</th></tr>
+    <tr><td><code>PLANNER_MODEL</code></td><td><em>(same as main)</em></td><td>Mission planning (breaking goals into structured milestones/tasks)</td></tr>
+    <tr><td><code>REVIEWER_MODEL</code></td><td><em>(same as main)</em></td><td>Coder-Reviewer swarm — audits completed code</td></tr>
+    <tr><td><code>TRIAGE_MODEL</code></td><td><em>(same as main)</em></td><td>Triage observer — classifies and routes incoming tasks</td></tr>
+    <tr><td><code>PLANNER_BASE_URL</code></td><td><em>(same as main)</em></td><td>Separate endpoint for planner (if different from execution)</td></tr>
+    <tr><td><code>REVIEWER_BASE_URL</code></td><td><em>(same as main)</em></td><td>Separate endpoint for reviewer</td></tr>
+    <tr><td><code>TRIAGE_BASE_URL</code></td><td><em>(same as main)</em></td><td>Separate endpoint for triage</td></tr>
+  </table>
+
+  <h3>⚡ Execution Limits</h3>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>CONTEXT_WINDOW</code></td><td><code>32768</code></td><td>Token limit for the LLM context window</td></tr>
+    <tr><td><code>MAX_STEPS</code></td><td><code>25</code></td><td>Maximum agent loop iterations per task</td></tr>
+    <tr><td><code>MAX_CONCURRENT_TASKS</code></td><td><code>1</code></td><td>Parallel task execution slots</td></tr>
+  </table>
+
+  <h3>🎛️ Agent Behavior</h3>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>THINKING_MODE</code></td><td><code>true</code></td><td>Show reasoning/thought traces from model (if supported)</td></tr>
+    <tr><td><code>YOLO_MODE</code></td><td><code>true</code></td><td>Disable safety limits (MAX_STEPS, thrash detection) — toggle at runtime with <kbd>Alt+Y</kbd></td></tr>
+    <tr><td><code>ENABLE_REVIEWER</code></td><td><code>true</code></td><td>Coder-Reviewer swarm: after each task, a reviewer model audits the output</td></tr>
+    <tr><td><code>AGENT_HOOKS</code></td><td><code>true</code></td><td>Enable lifecycle hooks (pre-task, post-task, on-error)</td></tr>
+    <tr><td><code>MULTI_AGENT_ENABLED</code></td><td><code>false</code></td><td>Experimental — spawn multiple agent instances per task</td></tr>
+    <tr><td><code>TOOL_EXECUTION_MODE</code></td><td><code>sequential</code></td><td><span class="tag tag-yellow">select</span> <code>sequential</code> or <code>parallel</code> — how tools are dispatched per step</td></tr>
+    <tr><td><code>DATA_SHARING_MODE</code></td><td><code>none</code></td><td><span class="tag tag-yellow">select</span> <code>none</code>, <code>workspace</code>, or <code>full</code> — artifact sharing scope</td></tr>
+    <tr><td><code>CONTEXT_COMPACTION_ENABLED</code></td><td><code>true</code></td><td>Compress conversation history when approaching token limit</td></tr>
+  </table>
+
+  <h3>🛡️ Auditing</h3>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>ENABLE_STRUCTURAL_AUDIT</code></td><td><code>true</code></td><td>Stack-aware code quality checks after task completion</td></tr>
+    <tr><td><code>ENABLE_ADVERSARIAL_AUDIT</code></td><td><code>false</code></td><td>Red-team style adversarial checks on generated code</td></tr>
+  </table>
+
+  <h3>🏥 Triage Observer</h3>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>TRIAGE_ENABLED</code></td><td><code>false</code></td><td>Pre-flight task classification and routing</td></tr>
+    <tr><td><code>TRIAGE_INTERVAL</code></td><td><code>5</code></td><td>Run triage every N tasks</td></tr>
+    <tr><td><code>TRIAGE_AUTO_STEER</code></td><td><code>true</code></td><td>Automatically adjust mission plan based on triage feedback</td></tr>
+  </table>
+
+  <h3>💾 Memory</h3>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>MEMORY_ENABLED</code></td><td><code>true</code></td><td>Enable long-term memory (JSONL files in <code>.antigravity/memories/</code>)</td></tr>
+    <tr><td><code>LOCAL_MEMORY</code></td><td><code>false</code></td><td>Use local JSONL-only mode (disable remote Mem0)</td></tr>
+    <tr><td><code>MEMORY_USER_ID</code></td><td><code>default</code></td><td>User/namespace for memory isolation</td></tr>
+  </table>
+
+  <h3>📚 Codex RAG</h3>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>CODEX_ENABLED</code></td><td><code>true</code></td><td>Enable Neo4j knowledge graph augmentation for small models</td></tr>
+    <tr><td><code>CODEX_TOP_K</code></td><td><code>3</code></td><td>Number of code snippets to retrieve per query</td></tr>
+    <tr><td><code>CODEX_SCRIPT_PATH</code></td><td><em>(empty)</em></td><td>Path to <code>codex_search.py</code> from LLM-Codex-Reference-Vault</td></tr>
+    <tr><td><code>CODEX_PYTHON_PATH</code></td><td><em>(empty)</em></td><td>Python interpreter path for the Codex script</td></tr>
+  </table>
+
+  <h3>📝 Tracing</h3>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>TRACE_DIR</code></td><td><em>(none)</em></td><td>Directory for execution trace output (optional)</td></tr>
+  </table>
+
+  <h2>Settings UI</h2>
+  <p>Press <kbd>Alt+S</kbd> in the TUI to open the Settings panel. All options above are editable here. Settings are persisted to <code>.vibes/config.json</code> automatically.</p>
+
+  <table>
+    <tr><th>Shortcut</th><th>Action</th></tr>
+    <tr><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td><td>Navigate between fields</td></tr>
+    <tr><td><kbd>Space</kbd> / <kbd>Enter</kbd></td><td>Toggle boolean fields</td></tr>
+    <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Cycle select-type fields (Tool Execution Mode, Data Sharing Mode)</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Submit text/number input</td></tr>
+    <tr><td><kbd>Alt+S</kbd> / <kbd>Esc</kbd></td><td>Close Settings</td></tr>
+  </table>
+
+  <h2>MCP Configuration</h2>
+  <p>Vibes supports the Model Context Protocol for connecting to external tools. Define servers in <code>.vibes/mcp.json</code>:</p>
+  <pre><code>{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    }
+  }
+}</code></pre>
+  <p><code>${VARIABLE}</code> placeholders are expanded from your <code>.env</code> file at runtime — never hardcode secrets in <code>mcp.json</code>.</p>
+  <p>MCP servers are discovered from these locations (first match wins):</p>
+  <ol style="margin-bottom:16px;padding-left:24px">
+    <li style="margin-bottom:4px"><code>.vibes/mcp.json</code> (project-local)</li>
+    <li style="margin-bottom:4px"><code>~/.vibes/mcp.json</code> (user global)</li>
+    <li style="margin-bottom:4px"><code>~/.config/vibes/mcp.json</code></li>
+    <li style="margin-bottom:4px"><code>~/.config/Claude/config.json</code> (Claude Desktop compatibility)</li>
+  </ol>
+</main>
+<footer>Vibes TUI — MIT License</footer>
+</body>
+</html>

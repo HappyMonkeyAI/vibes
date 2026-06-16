@@ -18,6 +18,7 @@ Built with **Ink 5** and **React 18**, Vibes connects to a remote Ollama instanc
   - **Settings**: Real-time configuration and model switching.
 - **🛠️ Integrated Toolset**: Native support for file operations (`read`, `write`, `edit`, `glob`, `grep`), shell command execution, and workspace-wide symbol search.
 - **🔌 MCP & Plugin Support**: First-class support for the Model Context Protocol (MCP) with dynamic environment variable expansion in `.vibes/mcp.json`.
+- **♻️ Context Reconstruction (Beta)**: Automatically rebuilds a lean, grounded context from state files (`MEMORY.md`, `checkpoint.md`, etc.) when token limits are approached.
 - **🛡️ Safety & Reliability**: 
   - **Auto-Git Snapshots**: Automatically commits workspace state before missions start.
   - **Undo Mission (`Alt+Z`)**: Instantly reset the workspace if an agent botches a task.

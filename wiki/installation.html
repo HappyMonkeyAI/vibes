@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Installation — Vibes Wiki</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;background:#0d1117;color:#c9d1d9;line-height:1.6;padding:0}
+a{color:#58a6ff;text-decoration:none}
+a:hover{text-decoration:underline}
+nav{background:#161b22;border-bottom:1px solid #30363d;padding:0 24px;display:flex;gap:24px;align-items:center;height:56px;position:sticky;top:0;z-index:10}
+nav .logo{font-weight:700;font-size:18px;color:#f0f6fc}
+nav a{font-size:14px;color:#8b949e;padding:4px 0}
+nav a:hover{color:#f0f6fc;text-decoration:none}
+nav a.active{color:#f0f6fc;border-bottom:2px solid #58a6ff}
+main{max-width:900px;margin:0 auto;padding:48px 24px}
+h1{font-size:32px;font-weight:700;margin-bottom:24px;color:#f0f6fc}
+h2{font-size:22px;font-weight:600;margin:36px 0 16px;color:#f0f6fc;border-bottom:1px solid #21262d;padding-bottom:8px}
+h3{font-size:17px;font-weight:600;margin:24px 0 12px;color:#f0f6fc}
+p{margin-bottom:16px}
+pre{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:16px;overflow-x:auto;font-size:13px;font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;margin-bottom:16px}
+code{font-family:'JetBrains Mono','Cascadia Code','Fira Code',monospace;font-size:13px;background:#161b22;padding:2px 6px;border-radius:4px}
+pre code{background:none;padding:0}
+table{width:100%;border-collapse:collapse;margin-bottom:24px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #21262d;font-size:14px}
+th{font-weight:600;color:#8b949e;text-transform:uppercase;font-size:12px;letter-spacing:.05em}
+tr:hover td{background:#161b22}
+.note{background:#161b22;border:1px solid #30363d;border-left:4px solid #58a6ff;border-radius:6px;padding:16px;margin-bottom:16px;font-size:14px}
+footer{text-align:center;padding:32px;color:#484f58;font-size:13px;border-top:1px solid #21262d;margin-top:48px}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">🌌 Vibes</span>
+  <a href="index.html">Home</a>
+  <a href="installation.html" class="active">Installation</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="usage.html">Usage</a>
+  <a href="architecture.html">Architecture</a>
+</nav>
+<main>
+  <h1>🚀 Installation</h1>
+
+  <h2>Prerequisites</h2>
+  <table>
+    <tr><th>Requirement</th><th>Minimum</th></tr>
+    <tr><td>Node.js</td><td>v22+ (v20 may work but v22 is recommended)</td></tr>
+    <tr><td>npm</td><td>v10+ (ships with Node)</td></tr>
+    <tr><td>LLM Server</td><td>Ollama, LM Studio, or any OpenAI-compatible endpoint</td></tr>
+    <tr><td>Terminal</td><td>UTF-8, modern (kitty, iTerm2, Windows Terminal, GNOME Terminal)</td></tr>
+  </table>
+
+  <h2>Option 1: npm Global Install</h2>
+  <p>The simplest way to get Vibes as a system-wide command:</p>
+  <pre><code>npm install --global vibes-tui
+
+# Launch from any directory
+vibes</code></pre>
+
+  <div class="note">
+    <strong>💡 No-root install:</strong> If you don't want global permissions, configure npm's global prefix:
+    <pre style="margin-top:8px"><code>npm config set prefix ~/.npm
+echo 'export PATH="$PATH:~/.npm/bin"' >> ~/.bashrc
+source ~/.bashrc</code></pre>
+  </div>
+
+  <h2>Option 2: Quick Run (No Install)</h2>
+  <p>Try Vibes immediately without installing anything:</p>
+  <pre><code>npx vibes-tui</code></pre>
+  <p>npx will download and cache the package automatically. Your <code>.vibes/config.json</code> persists across npx runs.</p>
+
+  <h2>Option 3: Linux / macOS — curl Install</h2>
+  <pre><code>curl -fsSL https://raw.githubusercontent.com/SPhillips1337/Vibes/main/install.sh | bash</code></pre>
+  <p>This script will:</p>
+  <ul style="margin-bottom:16px;padding-left:24px">
+    <li style="margin-bottom:6px">Clone the repository to <code>~/Vibes</code></li>
+    <li style="margin-bottom:6px">Install dependencies and build the project</li>
+    <li style="margin-bottom:6px">Add a <code>vibes</code> function to your shell config (<code>.bashrc</code>, <code>.zshrc</code>)</li>
+    <li style="margin-bottom:6px">Enable automatic workspace detection (Vibes defaults to the directory you launch it from)</li>
+  </ul>
+
+  <h2>Option 4: Windows — PowerShell Install</h2>
+  <pre><code>irm https://raw.githubusercontent.com/SPhillips1337/Vibes/main/install.ps1 | iex</code></pre>
+  <p>This script will:</p>
+  <ul style="margin-bottom:16px;padding-left:24px">
+    <li style="margin-bottom:6px">Clone the repository to <code>$HOME\Vibes</code></li>
+    <li style="margin-bottom:6px">Install dependencies and build the project</li>
+    <li style="margin-bottom:6px">Add a <code>vibes</code> function to your PowerShell <code>$PROFILE</code></li>
+    <li style="margin-bottom:6px">Enable automatic workspace detection</li>
+  </ul>
+
+  <h2>Option 5: Manual Clone & Build</h2>
+  <pre><code>git clone https://github.com/SPhillips1337/vibes.git
+cd vibes
+npm install
+npm run build
+
+# Run directly
+npm start
+
+# Or with hot-reload for development
+npm run dev</code></pre>
+
+  <h2>Optional: Mem0 Memory Backend</h2>
+  <p>Vibes uses local JSONL files for memory by default. If you want the optional Mem0 AI memory backend:</p>
+  <pre><code>npm install --global vibes-tui mem0ai</code></pre>
+  <p>Enable it by setting <code>LOCAL_MEMORY=false</code> and configuring Mem0 credentials in your <code>.env</code>.</p>
+
+  <h2>Verification</h2>
+  <p>After installation, verify everything works:</p>
+  <pre><code>vibes --version
+# Should print: 0.1.x</code></pre>
+  <p>The TUI should open showing the dashboard. If you see a blank screen, check that your terminal supports UTF-8 and is at least 80x24.</p>
+</main>
+<footer>Vibes TUI — MIT License</footer>
+</body>
+</html>

@@ -82,6 +82,32 @@ export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuti
             case 'context_update':
               // Handled by Dashboard component
               return null;
+            case 'context_reconstructed':
+              return (
+                <Box key={idx}>
+                  <Text color="cyan" bold>[Reconstruct] </Text>
+                  <Text color="cyan">{event.reason}</Text>
+                  <Text color="gray"> (freed {event.tokensFreed} tok, kept {event.turnCount} turns)</Text>
+                </Box>
+              );
+            case 'lane_forked':
+              return (
+                <Box key={idx}>
+                  <Text color="blue" bold>[Fork] </Text>
+                  <Text color="white">{event.laneId}</Text>
+                  <Text color="gray"> → </Text>
+                  <Text color="white">{event.title}</Text>
+                </Box>
+              );
+            case 'lane_joined':
+              return (
+                <Box key={idx}>
+                  <Text color="blue" bold>[Join] </Text>
+                  <Text color="white">{event.laneId}</Text>
+                  <Text color="gray"> → </Text>
+                  <Text color={event.result === 'success' ? 'green' : 'red'}>{event.title} ({event.result})</Text>
+                </Box>
+              );
             default:
               return null;
           }

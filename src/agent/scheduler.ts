@@ -1,10 +1,12 @@
-import { Mission, Task, OnEvent } from './types.js';
+import { Mission, Task, OnEvent, TriageAction } from './types.js';
 import { TaskExecutor } from './task-executor.js';
 import { config } from '../config.js';
 import { log } from '../logger.js';
 import { InterventionManager } from './intervention-manager.js';
 import { getMemoryService } from '../memory/index.js';
 import { runStructuralAudit } from './structural-audit.js';
+import { createDefaultGoalJudge } from './goal-judge.js';
+import { TriageAgent } from './triage-agent.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, readFileSync } from 'fs';
@@ -34,6 +36,12 @@ export class Scheduler {
   // Pending intervention: resolve callback waiting for user input
   private interventionResolve: ((res: InterventionResolution) => void) | null = null;
   private getYoloMode: () => boolean;
+
+  triageAgent?: TriageAgent;
+  private pendingSteerMessage = '';
+  private lastTriageTime = 0;
+  private static readonly TRIAGE_WALL_CLOCK_MS = 30000;
+  private lastEmittedTriageState: string = '';
 
   constructor(mission: Mission, executor: TaskExecutor, onEvent?: OnEvent, getYoloMode: () => boolean = () => config.YOLO_MODE) {
     this._mission = mission;
@@ -94,11 +102,29 @@ export class Scheduler {
 
       if (tasksToStart.length > 0) {
         log(`Starting ${tasksToStart.length} tasks...`, 'INFO');
+        // Inject any pending steering message into the next task
+        if (this.pendingSteerMessage) {
+          tasksToStart[0].userGuidance = tasksToStart[0].userGuidance
+            ? `${tasksToStart[0].userGuidance}\n\n${this.pendingSteerMessage}`
+            : this.pendingSteerMessage;
+          this.pendingSteerMessage = '';
+        }
         for (const task of tasksToStart) {
           this.executeTask(task); // fire-and-forget, manages itself
         }
       }
-      
+
+      // Wall-clock periodic triage check (30s)
+      if (this.triageAgent && Date.now() - this.lastTriageTime >= Scheduler.TRIAGE_WALL_CLOCK_MS) {
+        this.lastTriageTime = Date.now();
+        try {
+          const action = await this.triageAgent.analyzeTimeBased();
+          await this.handleTriageAction(action);
+        } catch (err: any) {
+          log(`Triage time-based analysis error: ${err.message}`, 'WARN');
+        }
+      }
+
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
@@ -132,10 +158,58 @@ export class Scheduler {
     return Array.from(this.taskMap.values());
   }
 
+  private async runTriageAnalysis() {
+    if (!this.triageAgent) return;
+    try {
+      const action = await this.triageAgent.analyzeBetweenTasks();
+      await this.handleTriageAction(action);
+    } catch (err: any) {
+      log(`Triage analysis error: ${err.message}`, 'WARN');
+    }
+  }
+
+  private emitTriageState(state: 'watching' | 'guiding' | 'escalated', message?: string) {
+    if (this.lastEmittedTriageState === state) return;
+    this.lastEmittedTriageState = state;
+    this.onEvent?.({ type: 'triage_state', state, message });
+  }
+
+  private async handleTriageAction(action: TriageAction) {
+    switch (action.type) {
+      case 'continue': {
+        this.emitTriageState('watching');
+        break;
+      }
+      case 'compress':
+        log(`Triage: ${action.reason}`, 'INFO');
+        this.emitTriageState('watching', action.reason);
+        break;
+      case 'steer':
+        log(`Triage: steering next task — ${action.message}`, 'INFO');
+        this.pendingSteerMessage = action.message;
+        this.emitTriageState('guiding', action.message);
+        break;
+      case 'escalate': {
+        log(`Triage: escalation — ${action.reason}`, 'WARN');
+        this._mission.status = 'awaiting_intervention';
+        this.onEvent?.({
+          type: 'intervention_required',
+          taskId: this.triageAgent?.currentTaskId || '',
+          error: `Triage escalation: ${action.reason}`,
+          question: `The triage observer recommends intervention:\n\n${action.reason}\n\nWhat would you like to do?`,
+        });
+        this.emitTriageState('escalated', action.reason);
+        break;
+      }
+    }
+  }
+
   private async executeTask(task: Task) {
     this.runningTasks.add(task.id);
     task.status = 'in_progress';
+    task.attemptCount = (task.attemptCount || 0) + 1;
     this.failedTasks.delete(task.id);
+    if (this.triageAgent) this.triageAgent.currentTaskId = task.id;
 
     this.onEvent?.({ type: 'task_started', taskId: task.id, title: task.title });
 
@@ -153,10 +227,12 @@ export class Scheduler {
         if (config.ENABLE_REVIEWER && updatedTask.type === 'code') {
           const { Reviewer } = await import('./reviewer.js');
           const reviewer = new Reviewer();
-          const review = await reviewer.reviewTask(updatedTask, this._mission);
+
+          const review = await reviewer.reviewTask(updatedTask, this._mission, this._mission.workspace_root);
           
           if (review.approved) {
             log(`Task approved by reviewer: ${updatedTask.title}`, 'INFO');
+            updatedTask.reviewIssues = undefined;
 
             // Verification phase — catches orphaned CSS, broken imports, syntax errors, and build failures
             if (!await this.verifyTask(task, updatedTask)) {
@@ -165,11 +241,13 @@ export class Scheduler {
 
             this.completedTasks.add(task.id);
             this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
+            await this.runTriageAnalysis();
           } else {
             log(`Task REJECTED by reviewer: ${updatedTask.title}. Feedback: ${review.feedback}`, 'WARN');
-            if (!updatedTask.userGuidance) {
-              // First rejection: auto-retry with reviewer feedback as guidance
-              log(`Auto-retrying task with reviewer feedback: ${updatedTask.title}`, 'INFO');
+            updatedTask.reviewIssues = review.issues;
+            if (updatedTask.attemptCount && updatedTask.attemptCount < 3) {
+              // Auto-retry with reviewer feedback as guidance
+              log(`Auto-retrying task with reviewer feedback: ${updatedTask.title} (Attempt ${updatedTask.attemptCount})`, 'INFO');
               updatedTask.status = 'todo';
               updatedTask.error = undefined;
               updatedTask.output = undefined;
@@ -178,12 +256,11 @@ export class Scheduler {
               this.completedTasks.delete(task.id);
               this.taskMap.set(task.id, updatedTask);
               this.runningTasks.delete(task.id);
-              // Main run() loop will pick up the reset task on next tick
               return;
             }
-            // Second rejection: escalate to user
+            // Max rejections or no attempt count: escalate to user
             updatedTask.status = 'failed';
-            updatedTask.error = `Review Rejected: ${review.feedback}`;
+            updatedTask.error = `Review Rejected repeatedly: ${review.feedback}`;
             await this.handleTaskFailure(updatedTask);
           }
         } else {
@@ -198,6 +275,7 @@ export class Scheduler {
 
           this.completedTasks.add(task.id);
           this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
+          await this.runTriageAnalysis();
         }
       } else {
         await this.handleTaskFailure(updatedTask);
@@ -272,6 +350,8 @@ export class Scheduler {
           t.status = 'todo';
           t.error = undefined;
           t.output = undefined;
+          t.attemptCount = 0;
+          t.verificationRetries = 0;
           this.completedTasks.delete(t.id);
           this.failedTasks.delete(t.id);
           this.taskMap.set(t.id, t);
@@ -305,31 +385,29 @@ export class Scheduler {
   }
 
   private async verifyTask(task: Task, updatedTask: Task): Promise<boolean> {
-    let auditIssuesMessage = '';
-    let auditIssuesList: any[] = [];
+    const goalJudge = createDefaultGoalJudge();
+    const result = await goalJudge.evaluate(updatedTask, this._mission.workspace_root);
 
-    if (updatedTask.files.length > 0) {
-      if (config.ENABLE_STRUCTURAL_AUDIT) {
-        const auditIssues = runStructuralAudit(this._mission.workspace_root, updatedTask.files);
-        if (auditIssues.length > 0) {
-          auditIssuesList = auditIssues;
-          auditIssuesMessage = `Structural audit found issues:\n${auditIssues.map(i => `- [${i.type}] ${i.file}: ${i.message}`).join('\n')}\n\n`;
-        }
-      }
-
-      const buildErrors = await runBuildCheck(this._mission.workspace_root);
-      if (buildErrors.length > 0) {
-        auditIssuesMessage += `Build compilation failed with errors:\n${buildErrors.map(e => `- ${e}`).join('\n')}\n\n`;
-      }
-    }
-
-    if (auditIssuesMessage) {
+    if (!result.approved) {
       log(`Verification failed for task: ${updatedTask.title}`, 'WARN');
-      updatedTask.auditIssues = auditIssuesList.length > 0 ? auditIssuesList : undefined;
+      updatedTask.verificationRetries = (updatedTask.verificationRetries || 0) + 1;
+      
+      if (updatedTask.verificationRetries > 3) {
+        log(`Max verification retries hit for: ${updatedTask.title}`, 'ERROR');
+        updatedTask.status = 'failed';
+        updatedTask.error = `Verification repeatedly failed:\n${result.feedback}`;
+        await this.handleTaskFailure(updatedTask);
+        return false;
+      }
+
+      // Check structural audit specifically to attach issue metadata
+      const auditIssues = runStructuralAudit(this._mission.workspace_root, updatedTask.files);
+      updatedTask.auditIssues = auditIssues.length > 0 ? auditIssues : undefined;
+
       updatedTask.status = 'todo';
       updatedTask.error = undefined;
       updatedTask.output = undefined;
-      updatedTask.userGuidance = `${auditIssuesMessage}Fix all structural and build compilation issues before completing the task.`;
+      updatedTask.userGuidance = `${result.feedback}\n\nFix all structural and build compilation issues before completing the task.`;
       updatedTask.extraSteps = (updatedTask.extraSteps || 0) + 10;
       this.completedTasks.delete(task.id);
       this.taskMap.set(task.id, updatedTask);
@@ -368,33 +446,5 @@ export class Scheduler {
       milestone.tasks.push(newTask);
       this.taskMap.set(newTask.id, newTask);
     }
-  }
-}
-
-// Async build check — uses execFileAsync instead of execSync so the TypeScript
-// compile does not block the Node.js event loop (and freeze the TUI) for its
-// full duration, which can be several seconds on a large project.
-async function runBuildCheck(workspaceRoot: string): Promise<string[]> {
-  try {
-    const pkgPath = join(workspaceRoot, 'package.json');
-    if (!existsSync(pkgPath)) return [];
-
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-    if (!pkg.scripts || !pkg.scripts.build) return [];
-
-    log('Running workspace build verification check...', 'INFO');
-    await execFileAsync('npm', ['run', 'build'], { cwd: workspaceRoot });
-    return [];
-  } catch (error: any) {
-    const stdout = error.stdout ? String(error.stdout) : '';
-    const stderr = error.stderr ? String(error.stderr) : '';
-    const output = `${stdout}\n${stderr}`;
-
-    const errorLines = output
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.includes('error TS') || line.includes('Error:') || line.includes('Failed to compile') || line.includes('ValidationError'));
-
-    return errorLines.length > 0 ? errorLines.slice(0, 8) : [error.message || 'Build compilation check failed'];
   }
 }
