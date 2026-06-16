@@ -29,9 +29,16 @@ export const TaskSchema = z.object({
   verificationRetries: z.number().optional(),
   // Issues found during pre-completion structural audit
   auditIssues: z.array(z.object({
-    type: z.enum(['import', 'css_orphan', 'syntax', 'prop_mismatch', 'dead_code']),
+    type: z.enum(['import', 'css_orphan', 'syntax', 'prop_mismatch', 'dead_code', 'missing_file']),
     file: z.string(),
     message: z.string(),
+  })).optional(),
+  reviewIssues: z.array(z.object({
+    file: z.string(),
+    line: z.number(),
+    comment: z.string(),
+    severity: z.enum(['error', 'warning']),
+    suggestion: z.string().optional(),
   })).optional(),
 });
 
@@ -80,7 +87,11 @@ export type ExecutionEvent =
   | { type: 'task_failed'; taskId: string; title: string; error: string }
   | { type: 'system_log'; level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG'; message: string; timestamp: string }
   | { type: 'timeout_warning'; thresholdSeconds: number; durationSeconds: number }
-  | { type: 'triage_state'; state: 'watching' | 'guiding' | 'escalated'; message?: string };
+  | { type: 'triage_state'; state: 'watching' | 'guiding' | 'escalated'; message?: string }
+  | { type: 'context_reconstructed'; reason: string; tokensFreed: number; turnCount: number }
+  | { type: 'lane_forked'; laneId: string; taskId: string; title: string }
+  | { type: 'lane_joined'; laneId: string; taskId: string; result: 'success' | 'failure'; title: string }
+  | { type: 'governor_update'; taskId: string; turnsUsed: number; maxTurns: number; tokensUsed: number; maxTokens: number };
 
 export type OnEvent = (event: ExecutionEvent) => void;
 
@@ -225,4 +236,14 @@ export interface ExecutorHooksConfig {
   hooks: AgentLoopHooks;
   /** YOLO / no-limit mode — passed through so hooks can change their thresholds. */
   getYoloMode: () => boolean;
+}
+
+/** Result of the deterministic /goal validation hook. */
+export interface GoalJudgeResult {
+  /** Whether all objective criteria are met. */
+  approved: boolean;
+  /** List of specific unmet criteria (empty when approved). */
+  unmetCriteria: string[];
+  /** Human-readable feedback when blocked. */
+  feedback?: string;
 }

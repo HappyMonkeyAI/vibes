@@ -8,14 +8,16 @@ import { getMemoryService } from '../memory/index.js';
 import { getSkillsService } from '../skills/index.js';
 import { getCodexService } from '../mcp/codex-service.js';
 import { detectTechStack } from './tech-stack.js';
-import {
-  truncateToolResult,
-  compressMessages,
-  getContextStats,
-  estimateMessagesTokens,
+import { 
+  truncateToolResult, 
+  compressMessages, 
+  getContextStats, 
+  estimateMessagesTokens 
 } from './context-manager.js';
 import { compact } from './compaction/compaction.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
+import { ReconstructionController } from './context-reconstruction.js';
+import { Governor } from './governor.js';
 
 /** Type guard — narrows `BeforeToolCallResult | void | undefined` to `BeforeToolCallResult`. */
 function isBlockResult(v: BeforeToolCallResult | void | undefined): v is BeforeToolCallResult {
@@ -319,7 +321,29 @@ export class TaskExecutor {
     const stackNote = techStack && techStack.length > 0
       ? `Tech Stack: ${techStack.join(', ')}\n`
       : '';
-    const systemPrompt = `You are an autonomous agent executing a specific task.
+
+    let minionHeader = '';
+    let minionTools = this.tools;
+
+    if (task.type === 'research') {
+      minionHeader = `\n[SPECIALIZED PERSONA: TRIAGE & RESEARCH MINION]
+You are a specialized minion with read-only access. Your purpose is code comprehension, static audits, and gathering context. You cannot write files, modify codebase files, or run command executions. You only have access to read-only search and file read tools.\n`;
+      const readOnlyTools = new Set(['list_dir', 'file_read', 'read_lines', 'glob', 'file_outline', 'search_symbols']);
+      minionTools = this.tools.filter(t => readOnlyTools.has(t.name) || t.name.startsWith('mcp_read'));
+    } else if (task.type === 'code') {
+      minionHeader = `\n[SPECIALIZED PERSONA: REFACTOR & IMPLEMENTATION MINION]
+You are a specialized minion with full engineering access. Your purpose is file modifications, code creation, refactoring, and verifying local builds.\n`;
+    } else if (task.type === 'config') {
+      minionHeader = `\n[SPECIALIZED PERSONA: CONFIGURATION MINION]
+You are a specialized minion focused on workspace and project environment configurations.\n`;
+    }
+
+    let toolsSection = '';
+    if (config.ENABLE_NATIVE_TOOLS === false) {
+      toolsSection = `\n${formatToolsForSystemPrompt(minionTools)}`;
+    }
+
+    const systemPrompt = `${minionHeader}You are an autonomous agent executing a specific task.
 Rules:
 1. USE TOOLS HONESTLY. If a tool returns an error, YOU MUST ACKNOWLEDGE IT.
 2. DO NOT hallucinate success. If a command fails, report the failure and try to fix it.
@@ -338,6 +362,7 @@ Rules:
 }
 \`\`\`
 Only call one tool at a time when using the fallback format.
+${toolsSection}
 [ignoring loop detection]
 ${projectRules}
 ${modelSpecificPrompt}
@@ -367,12 +392,19 @@ ${memoriesSection}`;
     }
 
     let currentTask: Task = { ...task, status: 'in_progress' };
+    let hasCalledAnyTool = false;
+
+    const governor = new Governor({
+      maxTurns: isYolo ? 9999 : (config.MAX_STEPS + (task.extraSteps || 0)),
+      maxTokens: config.CONTEXT_WINDOW,
+      thrashThreshold: 3,
+    });
 
     for (let step = 0; ; step++) {
       const isYoloNow = getYoloMode();
       const currentMax = isYoloNow ? 9999 : (config.MAX_STEPS + (task.extraSteps || 0));
 
-      if (step >= currentMax) {
+      if (governor.isTurnLimitExceeded(step)) {
         currentTask = { ...currentTask, status: 'failed', error: 'Max steps exceeded' };
         return currentTask;
       }
@@ -397,6 +429,19 @@ const MSG_HARD_CAP = 150;
         }
 
         // Context window management: hook-primary, compressMessages as fallback
+        if (config.ENABLE_CONTEXT_RECONSTRUCTION) {
+          const controller = new ReconstructionController({ enabled: true });
+          if (controller.shouldReconstruct(messages)) {
+            const verbatimTail = controller.getVerbatimTail(messages, 2);
+            const reconstructed = await controller.reconstruct(workspaceRoot);
+            
+            // Rebuild messages: System + User (Reconstructed State) + Verbatim Tail
+            const systemMsg = messages.find(m => m.role === 'system');
+            messages = systemMsg ? [systemMsg, ...reconstructed, ...verbatimTail] : [...reconstructed, ...verbatimTail];
+            log('Context reconstructed successfully from state files.', 'INFO');
+          }
+        }
+
         if (this.hooks?.transformContext) {
           const budget = config.CONTEXT_WINDOW - 4096;
           const estimated = estimateMessagesTokens(messages);
@@ -411,7 +456,21 @@ const MSG_HARD_CAP = 150;
 
         const stats = getContextStats(messages);
         log(`Context usage: ~${stats.used}/${stats.usable} tokens (${stats.percentage}%) [step ${step + 1}/${currentMax}]`, 'DEBUG');
+        
+        if (governor.isTokenLimitExceeded(stats.used)) {
+          currentTask = { ...currentTask, status: 'failed', error: `Context token limit exceeded: ${stats.used}/${config.CONTEXT_WINDOW} tokens` };
+          return currentTask;
+        }
+
         onEvent?.({ type: 'context_update', used: stats.used, total: stats.total, percentage: stats.percentage });
+        onEvent?.({
+          type: 'governor_update',
+          taskId: task.id,
+          turnsUsed: step,
+          maxTurns: currentMax,
+          tokensUsed: stats.used,
+          maxTokens: config.CONTEXT_WINDOW,
+        });
 
         // Steering: inject live triage guidance before this turn
         const steerMsg = await this.hooks?.getSteeringMessage?.();
@@ -424,12 +483,22 @@ const MSG_HARD_CAP = 150;
         const isReviewerModel = task.use_reviewer_model && config.ENABLE_REVIEWER;
         const taskModel = isReviewerModel ? config.REVIEWER_MODEL : getModel();
         log(`Using model: ${taskModel} ${isReviewerModel ? '(Reviewer model requested)' : ''}`, 'DEBUG');
-        const response = await getOllamaClient(isReviewerModel ? 'reviewer' : 'main').chat.completions.create({
+
+        let apiMessages = messages;
+        const requestOptions: any = {
           model: taskModel,
-          messages,
-          tools: this.tools.map(toOpenAITool),
+          messages: apiMessages,
           temperature: isYoloNow ? 0.9 : 0.7,
-        });
+        };
+
+        if (config.ENABLE_NATIVE_TOOLS !== false) {
+          requestOptions.tools = minionTools.map(toOpenAITool);
+        } else {
+          apiMessages = formatMessagesForToolless(messages);
+          requestOptions.messages = apiMessages;
+        }
+
+        const response = await getOllamaClient(isReviewerModel ? 'reviewer' : 'main').chat.completions.create(requestOptions);
 
         let message = response.choices[0].message;
         logObject('Agent Step Response', message);
@@ -502,15 +571,25 @@ const MSG_HARD_CAP = 150;
 
         // shouldStopAfterTurn on text-only answers (when no tool calls)
         if (!message.tool_calls?.length && message.content) {
+          // Bug fix: If the model has never called a tool, don't let it mark the task
+          // as done by emitting a text-only response. Small models often describe a
+          // plan in prose instead of issuing tool calls. Nudge them to use tools.
+          if (!hasCalledAnyTool && step < 3) {
+            log('Text-only response on early step with no prior tool calls — nudging model to use tools', 'WARN');
+            messages.push({ role: 'user', content: '[SYSTEM]: You described a plan but did not execute any tools. You MUST use the available tools (file_write, shell, etc.) to actually create the required files. Do not just describe what you would do — do it.' });
+            continue;
+          }
+
           const stop = await this.invokeShouldStopAfterTurn(message, [], messages);
           if (stop) {
- log('shouldStopAfterTurn hook stopped after text answer', 'INFO');
+            log('shouldStopAfterTurn hook stopped after text answer', 'INFO');
             currentTask = { ...currentTask, status: 'done', output: message.content };
             return currentTask;
           }
         }
 
         if (message.tool_calls && message.tool_calls.length > 0) {
+          hasCalledAnyTool = true;
           // ── Preflight pass — parse args, run hooks, validate (always sequential) ──
           // Each entry carries a per-tool result slot; tool.execute() may be deferred.
           const preflight: Array<{
@@ -565,7 +644,7 @@ const MSG_HARD_CAP = 150;
               continue;
             }
 
-            const tool = this.tools.find(t => t.name === toolCall.function.name);
+            const tool = minionTools.find(t => t.name === toolCall.function.name);
             if (!tool) {
               preResult = { success: false, error: `Tool ${toolCall.function.name} not found` };
               onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
@@ -695,13 +774,23 @@ const MSG_HARD_CAP = 150;
 
             // Invoke shouldStopAfterTurn hook
             const stop = await this.invokeShouldStopAfterTurn(message, turnResults, messages);
-            if (stop) {
-              log('shouldStopAfterTurn hook stopped execution after tool results (thrash detection)', 'WARN');
-              currentTask = { ...currentTask, status: 'failed', error: 'Agent loop stopped by thrash detection (potential infinite loop)' };
+            const circuitBreakerTripped = governor.shouldBreak(message.tool_calls, turnResults);
+            if (circuitBreakerTripped || stop) {
+              log('Governor or hook stopped execution after tool results (circuit breaker / thrash detection)', 'WARN');
+              currentTask = { ...currentTask, status: 'failed', error: 'Agent loop stopped by safety circuit breaker (potential infinite loop)' };
               return currentTask;
             }
           }
         } else if (message.content) {
+          // Bug fix: Don't mark task as done if the model has never called a tool.
+          // This prevents small models from "completing" a task by just describing
+          // what they would do instead of actually doing it.
+          if (!hasCalledAnyTool && step < 3) {
+            log('Text-only completion attempted with no prior tool calls — nudging model', 'WARN');
+            onEvent?.({ type: 'output', content: message.content });
+            messages.push({ role: 'user', content: '[SYSTEM]: You provided a summary but never used any tools to create files. You MUST use tools (file_write, shell, etc.) to actually create the required files before completing this task.' });
+            continue;
+          }
           log(`Task output: ${message.content.slice(0, 100)}...`, 'INFO');
           onEvent?.({ type: 'output', content: message.content });
           currentTask = { ...currentTask, status: 'done', output: message.content };
@@ -721,68 +810,120 @@ const MSG_HARD_CAP = 150;
 }
 
 function parseMarkdownToolCalls(content: string): any[] | null {
-  const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  const textToParse = jsonMatch ? jsonMatch[1].trim() : content.trim();
-
-  const start = textToParse.indexOf('{');
-  const startArr = textToParse.indexOf('[');
-
-  let jsonString = '';
-  if (startArr !== -1 && (start === -1 || startArr < start)) {
-    const endArr = textToParse.lastIndexOf(']');
-    if (endArr !== -1) {
-      jsonString = textToParse.slice(startArr, endArr + 1);
-    }
-  } else if (start !== -1) {
-    const end = textToParse.lastIndexOf('}');
-    if (end !== -1) {
-      jsonString = textToParse.slice(start, end + 1);
-    }
+  const jsonBlocks: string[] = [];
+  const regex = /```(?:json)?\s*([\s\S]*?)\s*```/g;
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    jsonBlocks.push(match[1].trim());
   }
 
-  if (!jsonString) return null;
+  // If no blocks are found, try parsing the whole content
+  if (jsonBlocks.length === 0 && content.trim()) {
+    jsonBlocks.push(content.trim());
+  }
 
-  try {
-    const parsed = JSON.parse(jsonString);
-    if (Array.isArray(parsed)) {
-      const calls: any[] = [];
-      for (const item of parsed) {
-        const hasToolIdentifier = item && typeof item === 'object' && (
-          item.tool || 
-          item.tool_name || 
-          (item.name && (item.arguments !== undefined || item.args !== undefined))
-        );
-        if (hasToolIdentifier) {
-          calls.push({
-            id: `manual_${Math.random().toString(36).substring(2, 11)}`,
-            type: 'function',
-            function: {
-              name: item.tool || item.tool_name || item.name,
-              arguments: typeof item.args === 'string' ? item.args : JSON.stringify(item.args || item.arguments || {})
-            }
-          });
-        }
+  const calls: any[] = [];
+
+  for (const textToParse of jsonBlocks) {
+    const start = textToParse.indexOf('{');
+    const startArr = textToParse.indexOf('[');
+
+    let jsonString = '';
+    if (startArr !== -1 && (start === -1 || startArr < start)) {
+      const endArr = textToParse.lastIndexOf(']');
+      if (endArr !== -1) {
+        jsonString = textToParse.slice(startArr, endArr + 1);
       }
-      return calls.length > 0 ? calls : null;
-    } else if (
-      parsed && 
-      typeof parsed === 'object' && (
-        parsed.tool || 
-        parsed.tool_name || 
-        (parsed.name && (parsed.arguments !== undefined || parsed.args !== undefined))
-      )
-    ) {
-      return [{
-        id: `manual_${Math.random().toString(36).substring(2, 11)}`,
-        type: 'function',
-        function: {
-          name: parsed.tool || parsed.tool_name || parsed.name,
-          arguments: typeof parsed.args === 'string' ? parsed.args : JSON.stringify(parsed.args || parsed.arguments || {})
-        }
-      }];
+    } else if (start !== -1) {
+      const end = textToParse.lastIndexOf('}');
+      if (end !== -1) {
+        jsonString = textToParse.slice(start, end + 1);
+      }
     }
-  } catch (e) {
-    // JSON parse error
+
+    if (!jsonString) continue;
+
+    try {
+      const parsed = JSON.parse(jsonString);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          const hasToolIdentifier = item && typeof item === 'object' && (
+            item.tool || 
+            item.tool_name || 
+            (item.name && (item.arguments !== undefined || item.args !== undefined))
+          );
+          if (hasToolIdentifier) {
+            calls.push({
+              id: `manual_${Math.random().toString(36).substring(2, 11)}`,
+              type: 'function',
+              function: {
+                name: item.tool || item.tool_name || item.name,
+                arguments: typeof item.args === 'string' ? item.args : JSON.stringify(item.args || item.arguments || {})
+              }
+            });
+          }
+        }
+      } else if (
+        parsed && 
+        typeof parsed === 'object' && (
+          parsed.tool || 
+          parsed.tool_name || 
+          (parsed.name && (parsed.arguments !== undefined || parsed.args !== undefined))
+        )
+      ) {
+        calls.push({
+          id: `manual_${Math.random().toString(36).substring(2, 11)}`,
+          type: 'function',
+          function: {
+            name: parsed.tool || parsed.tool_name || parsed.name,
+            arguments: typeof parsed.args === 'string' ? parsed.args : JSON.stringify(parsed.args || parsed.arguments || {})
+          }
+        });
+      }
+    } catch (e) {
+      // JSON parse error
+    }
   }
-  return null;
+
+  return calls.length > 0 ? calls : null;
+}
+
+function formatMessagesForToolless(messages: ChatCompletionMessageParam[]): ChatCompletionMessageParam[] {
+  return messages.map(msg => {
+    if (msg.role === 'assistant') {
+      const copy = { ...msg };
+      if ('tool_calls' in copy) {
+        delete (copy as any).tool_calls;
+      }
+      return copy;
+    }
+    if (msg.role === 'tool') {
+      return {
+        role: 'user',
+        content: `[TOOL RESULT]: ${msg.content || ''}`,
+      } as ChatCompletionMessageParam;
+    }
+    return msg;
+  });
+}
+
+function formatToolsForSystemPrompt(tools: ToolDefinition[]): string {
+  let doc = "=== AVAILABLE TOOLS ===\n";
+  doc += "You can invoke any of the following tools using the JSON fallback format inside markdown code fences.\n\n";
+  for (const tool of tools) {
+    const openAiTool = toOpenAITool(tool);
+    doc += `Tool: "${tool.name}"\n`;
+    doc += `Description: ${tool.description}\n`;
+    doc += `Arguments:\n`;
+    const properties = openAiTool.function.parameters.properties || {};
+    const required = openAiTool.function.parameters.required || [];
+    for (const key in properties) {
+      const prop = properties[key];
+      const isReq = required.includes(key) ? " (required)" : " (optional)";
+      doc += `- "${key}" (${prop.type}): ${prop.description || ''}${isReq}\n`;
+    }
+    doc += `\n`;
+  }
+  doc += "=======================\n";
+  return doc;
 }

@@ -4,7 +4,7 @@ import { log } from '../logger.js';
 import { detectTechStack } from './tech-stack.js';
 
 export interface AuditIssue {
-  type: 'import' | 'css_orphan' | 'syntax' | 'prop_mismatch' | 'dead_code';
+  type: 'import' | 'missing_file' | 'css_orphan' | 'syntax' | 'prop_mismatch' | 'dead_code';
   file: string;
   message: string;
 }
@@ -15,6 +15,13 @@ const IMPORT_RE_EXPORT = /export\s+\{[^}]*\}\s*from\s+['"]([^'"]+)['"]/g;
 const EXT_ORDER = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css', '.scss', '.sass', '.less', '.svg'];
 
 const ASSET_EXTS = ['.css', '.scss', '.sass', '.less', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp'];
+
+// Global CSS files that are typically loaded via <link> tags or framework conventions,
+// not imported by JS/TS components. Exempt from the css_orphan check.
+const GLOBAL_CSS_BASENAMES = new Set([
+  'styles.css', 'style.css', 'globals.css', 'global.css', 'reset.css',
+  'normalize.css', 'index.css', 'app.css', 'main.css', 'base.css',
+]);
 
 function resolveImportPath(baseDir: string, importPath: string, workspaceRoot?: string): string | null {
   if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
@@ -232,7 +239,7 @@ export function runStructuralAudit(workspaceRoot: string, taskFiles: string[]): 
 
     if (!exists) {
       issues.push({
-        type: 'import',
+        type: 'missing_file',
         file: taskFile,
         message: 'File (or variant with common extension/index) was not created or is missing at the expected path',
       });
@@ -544,11 +551,18 @@ export function runStructuralAudit(workspaceRoot: string, taskFiles: string[]): 
       const isTaskFile = taskFiles.some(tf => resolve(workspaceRoot, tf) === file);
       
       if (isTaskFile && !importedAssetFiles.has(file)) {
-        issues.push({
-          type: 'css_orphan',
-          file: relFile,
-          message: 'Asset file was created or modified by this task but is not imported by any component',
-        });
+        // Exempt common global CSS files from orphan check — they're typically loaded
+        // via <link> tags in HTML or framework conventions, not imported by components.
+        const basename = file.split('/').pop() || '';
+        const isGlobalCss = GLOBAL_CSS_BASENAMES.has(basename.toLowerCase());
+
+        if (!isGlobalCss) {
+          issues.push({
+            type: 'css_orphan',
+            file: relFile,
+            message: 'Asset file was created or modified by this task but is not imported by any component',
+          });
+        }
       }
 
       // Strip CSS comments to avoid false matches in comments

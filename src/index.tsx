@@ -15,6 +15,7 @@ import { ApprovalView } from './tui/components/approval-view.js';
 import { InterventionView } from './tui/components/intervention-view.js';
 import { LogStreamView } from './tui/components/log-stream-view.js';
 import { UpdateNotification } from './tui/components/update-notification.js';
+import { DiffView } from './tui/components/diff-view.js';
 import { initLogger } from './logger.js';
 import { hasPersistentConfig } from './config.js';
 import path from 'path';
@@ -23,7 +24,7 @@ const App = () => {
   const {
     mission, pendingMission, isPlanning, isExecuting,
     error, events, contextUsage, pendingIntervention, activeMaxSteps,
-    isYoloMode, toggleYoloMode, sessions, triageState,
+    isYoloMode, toggleYoloMode, sessions, triageState, governorStats,
     startMission, approveMission, rejectMission, resolveIntervention, resetMission, undoMission,
     loadSession, deleteSession,
   } = useMission();
@@ -42,7 +43,7 @@ const App = () => {
   const closeSettings = React.useCallback(() => setView('dashboard'), []);
 
   const [workspace, setWorkspace] = React.useState(process.env.VIBES_LAUNCH_DIR || process.cwd());
-  const [view, setView] = React.useState<'dashboard' | 'mission' | 'task' | 'trace' | 'settings' | 'history' | 'log'>(
+  const [view, setView] = React.useState<'dashboard' | 'mission' | 'task' | 'trace' | 'settings' | 'history' | 'log' | 'review'>(
     hasPersistentConfig() ? 'dashboard' : 'settings'
   );
   const [focusIndex, setFocusIndex] = React.useState(0);
@@ -81,6 +82,7 @@ const App = () => {
       if (input === 's') { setView(prev => prev === 'settings' ? 'dashboard' : 'settings'); return; }
       if (input === 'h') { setView(prev => prev === 'history' ? 'dashboard' : 'history'); return; }
       if (input === 'l') { setView(prev => prev === 'log' ? 'dashboard' : 'log'); return; }
+      if (input === 'r') { setView(prev => prev === 'review' ? 'dashboard' : 'review'); return; }
       if (input === 'y') { toggleYoloMode(); return; }
       if (input === 'n') {
         resetMission();
@@ -250,6 +252,10 @@ const App = () => {
           <TraceView events={events} />
         )}
 
+        {!pendingMission && !pendingIntervention && view === 'review' && mission && (
+          <DiffView mission={mission} />
+        )}
+
         {view === 'history' && (
           <Box flexDirection="column" borderStyle="round" borderColor="magenta" padding={1}>
             <Text bold color="magenta">Mission History</Text>
@@ -338,6 +344,7 @@ const App = () => {
               <Text color={view === 'mission' ? 'white' : 'blue'}>[Alt+M] Mission</Text>
               <Text color={view === 'trace' ? 'white' : 'blue'}>[Alt+T] Trace</Text>
               <Text color={view === 'task' ? 'white' : 'blue'}>[Alt+⇧T] Task</Text>
+              <Text color={view === 'review' ? 'white' : 'blue'}>[Alt+R] Review</Text>
               <Text color="blue">[Alt+S] Settings</Text>
               <Text color={view === 'log' ? 'white' : 'blue'}>[Alt+L] Logs</Text>
             </>
@@ -354,7 +361,12 @@ const App = () => {
       {view !== 'settings' && (
         <Box marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
           <Text color="gray">Model: {settings.OLLAMA_MODEL}</Text>
-          <Box>
+          <Box gap={1}>
+            {governorStats && (
+              <Text color="cyan">
+                Turns: {governorStats.turnsUsed}/{governorStats.maxTurns} | Tokens: {Math.round(governorStats.tokensUsed / 102) / 10}k/{Math.round(governorStats.maxTokens / 1024)}k |
+              </Text>
+            )}
             <Text color="gray">
               Context: {contextKB}K tokens | Max Steps:
             </Text>

@@ -132,10 +132,14 @@ export const shellTool: ToolDefinition = {
 
     try {
       const workspaceRoot = context?.workspaceRoot || process.cwd();
+      // Use /bin/bash explicitly — the default /bin/sh is often dash, which
+      // does not support brace expansion. Models frequently emit commands like
+      // `mkdir -p components/{Button,Card}` which create literal directory names under dash.
       const { stdout: rawOut, stderr: rawErr } = await execAsync(command, { 
         timeout: msTimeout,
         killSignal: 'SIGKILL',
         cwd: workspaceRoot,
+        shell: '/bin/bash',
       });
 
       const stdout = truncateOutput(rawOut, 'stdout');

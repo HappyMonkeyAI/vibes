@@ -13,8 +13,10 @@ test('detects common Gemma 12B model identifiers', () => {
   assert.equal(isGemma12BModel('qwen3.5-12b'), false);
 });
 
-test('does not inject instructions for other models', () => {
-  assert.equal(getModelSpecificPrompt('qwen3.5-2b', 'executor'), '');
+test('injects generic role contracts for other models', () => {
+  const prompt = getModelSpecificPrompt('qwen3.5-2b', 'executor');
+  assert.match(prompt, /VIBES EXECUTOR CONTRACT/);
+  assert.doesNotMatch(prompt, /MODEL-SPECIFIC INSTRUCTIONS: GEMMA/);
 });
 
 test('keeps executor instructions compatible with Vibes tools', () => {

@@ -4,36 +4,60 @@ import { log } from '../logger.js';
 import { config } from '../config.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
 import { extractJsonContent } from './json-repair.js';
+import { execSync } from 'child_process';
+
+export interface ReviewIssue {
+  file: string;
+  line: number;
+  comment: string;
+  severity: 'error' | 'warning';
+  suggestion?: string;
+}
+
+export interface ReviewResult {
+  approved: boolean;
+  issues: ReviewIssue[];
+  feedback?: string;
+}
 
 export class Reviewer {
-  async reviewTask(task: Task, mission: Mission, fileContents?: Map<string, string>): Promise<{ approved: boolean; feedback?: string }> {
-    log(`Reviewing task: ${task.title}`, 'INFO');
+  /**
+   * Performs a code review on the git diff of modified files using the reviewer model.
+   */
+  async reviewTask(task: Task, mission: Mission, workspaceRoot: string): Promise<ReviewResult> {
+    log(`Reviewing task via git diff: ${task.title}`, 'INFO');
     const modelSpecificPrompt = getModelSpecificPrompt(config.REVIEWER_MODEL, 'reviewer');
 
-    let filesSection = '';
-    if (fileContents && fileContents.size > 0) {
-      filesSection = '\n\nFile Contents on Disk:\n';
-      for (const [path, content] of fileContents) {
-        filesSection += `--- FILE: ${path} ---\n${content}\n---\n`;
-      }
+    const diffContent = this.getGitDiffForTask(workspaceRoot, task.files);
+    if (!diffContent) {
+      log(`No git diff detected for task files in ${task.title}. Defaulting to approval.`, 'INFO');
+      return { approved: true, issues: [] };
     }
 
     const systemPrompt = `You are a Senior Software Engineer performing a code review.
-Review the task completion based on the description and acceptance criteria.
-You are given the agent's summary and the actual file contents from the disk.
-Output ONLY a JSON object.
-${modelSpecificPrompt}
+Review the task completion based on the description, acceptance criteria, and the git diff of the changes.
+Output ONLY a JSON object matching the schema below.
 
 Structure:
 {
-  "approved": true | false,
-  "feedback": "Detailed feedback or LGTM"
+  "approved": false,
+  "issues": [
+    {
+      "file": "path/to/file.ts",
+      "line": 42,
+      "comment": "Description of the issue...",
+      "severity": "error", // "error" or "warning"
+      "suggestion": "Optional suggestion to fix the code..."
+    }
+  ]
 }
 
 Constraints:
-1. If approved, feedback should be "LGTM".
-2. If rejected, provide clear, actionable feedback on what is missing or incorrect.
-3. Be strict but fair.`;
+1. If the changes are correct and fulfill all acceptance criteria without bugs, style issues, resource leaks, or security vulnerabilities, set "approved": true and "issues": [].
+2. Focus on code quality checks (e.g. null pointer exceptions, unclosed resources/file descriptors, thread safety, and type errors).
+3. Pinpoint exact file names and line numbers of the issue.
+4. Output raw JSON ONLY. Do not write text before or after the JSON.
+${modelSpecificPrompt}`;
 
     const userPrompt = `Mission: ${mission.title}
 Task: ${task.title}
@@ -42,7 +66,12 @@ Acceptance Criteria:
 ${task.acceptance_criteria.map(c => `- ${c}`).join('\n')}
 
 Task Output Summary:
-${task.output || 'No output provided.'}${filesSection}`;
+${task.output || 'No output summary.'}
+
+Git Diff of Changes:
+\`\`\`diff
+${diffContent}
+\`\`\``;
 
     try {
       const response = await getOllamaClient('reviewer').chat.completions.create({
@@ -56,14 +85,44 @@ ${task.output || 'No output provided.'}${filesSection}`;
 
       const msg = response.choices[0]?.message as any;
       let content = msg?.content || msg?.reasoning_content || '';
-      if (!content) throw new Error('No response from reviewer');
+      if (!content) throw new Error('No response from reviewer model');
 
       content = extractJsonContent(content);
-      const result = JSON.parse(content);
+      const result: ReviewResult = JSON.parse(content);
+      
+      // Enforce schema sanity
+      if (typeof result.approved !== 'boolean') {
+        result.approved = result.issues ? result.issues.length === 0 : true;
+      }
+      if (!result.issues) {
+        result.issues = [];
+      }
+      
+      // Build a unified feedback text string if none is present
+      if (!result.approved && !result.feedback) {
+        result.feedback = result.issues.map(i => `- [${i.severity}] ${i.file}:${i.line}: ${i.comment}${i.suggestion ? ` (Suggestion: ${i.suggestion})` : ''}`).join('\n');
+      }
+
       return result;
     } catch (error: any) {
-      log(`Reviewer failed: ${error.message}`, 'ERROR');
-      return { approved: true, feedback: 'LGTM (Reviewer failed, defaulting to approval)' };
+      log(`Reviewer model failed: ${error.message}. Defaulting to approval.`, 'ERROR');
+      return { approved: true, issues: [], feedback: 'LGTM (Reviewer failed, defaulting to approval)' };
+    }
+  }
+
+  /**
+   * Retrieves the git diff of specific task files from HEAD.
+   */
+  private getGitDiffForTask(workspaceRoot: string, files: string[]): string {
+    try {
+      if (!files || files.length === 0) return '';
+      // Escape file paths safely for shell argument execution
+      const escapedFiles = files.map(f => `"${f.replace(/"/g, '\\"')}"`).join(' ');
+      const diffOutput = execSync(`git diff HEAD -- ${escapedFiles}`, { cwd: workspaceRoot }).toString();
+      return diffOutput;
+    } catch (err: any) {
+      log(`Git diff query failed: ${err.message}`, 'WARN');
+      return '';
     }
   }
 }

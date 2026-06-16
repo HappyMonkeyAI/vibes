@@ -10,6 +10,6 @@ test('settings viewport stays bounded on short terminals', () => {
 });
 
 test('settings viewport never exceeds the field count', () => {
-  assert.equal(getSettingsViewportSize(40), 24);
-  assert.equal(getSettingsViewportSize(80), 24);
+  assert.equal(getSettingsViewportSize(40), 25);
+  assert.equal(getSettingsViewportSize(80), 36);
 });

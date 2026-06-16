@@ -42,6 +42,7 @@ ADRs live in `.antigravity/memories/architectural_decisions/`. Key decisions:
 | **Local JSONL memory** as primary store | Zero-dependency persistence; Mem0 is optional remote peer dep |
 | **OpenAI SDK for all backends** | Universal model discovery via `models.list()` — works with Ollama, LM Studio, vLLM |
 | **Codex RAG (Neo4j)** | Retrieval-augmented patterns for small-model augmentation; 5-min circuit breaker on connection failure |
+| **Context Reconstruction** | Client-owned state rehydration from four-layer MD files when token pressure >80% |
 | **Tech-stack detection at plan time** | Single I/O scan in MissionPlanner, propagated through Scheduler -> TaskExecutor |
 
 ## What Not To Do
@@ -65,6 +66,9 @@ ADRs live in `.antigravity/memories/architectural_decisions/`. Key decisions:
 | `src/agent/scheduler.ts` | DAG scheduler, parallel slot management, intervention handling |
 | `src/agent/task-executor.ts` | Per-task agent loop (tool calls, streaming, thrash detection) |
 | `src/agent/context-manager.ts` | Token counting, message compression, hard cap at 150 messages |
+| `src/agent/context-reconstruction.ts` | Token-threshold controller and state file rehydration logic |
+| `src/agent/compaction/transforms.ts` | Deterministic log transforms (stack traces, repeated output) |
+| `src/agent/state-schemas.ts` | Zod schemas and MD parsers for the four-layer state files |
 | `src/agent/structural-audit.ts` | Stack-aware code quality audit (React hooks, Python patterns, etc.) |
 | `src/agent/triage-agent.ts` | Pre-flight task classification and routing |
 | `src/agent/tech-stack.ts` | Workspace stack detection (package.json + file scan) |
