@@ -7,6 +7,7 @@ import type {
   AgentLoopHooks,
   AfterToolCallContext,
   ShouldStopAfterTurnContext,
+  Task,
   TransformContextContext,
   TriageAction,
 } from './types.js';
@@ -70,6 +71,9 @@ interface TriageSnapshot {
   turnCount: number;
   maxSteps: number;
   errorLogCount: number;
+  attempts: number;
+  lastAuditIssues?: any[];
+  lastUserGuidance?: string;
 }
 
 export class TriageAgent {
@@ -93,13 +97,17 @@ export class TriageAgent {
     this.autoSteer = autoSteer;
   }
 
-  reset(taskId: string) {
+  reset(taskId: string, task?: Task) {
+    const existing = this.snapshots.get(taskId);
     this.snapshots.set(taskId, {
-      toolFailures: new Map(),
+      toolFailures: existing?.toolFailures ?? new Map(),
       contextReadings: [],
       turnCount: 0,
       maxSteps: config.MAX_STEPS,
-      errorLogCount: 0,
+      errorLogCount: existing?.errorLogCount ?? 0,
+      attempts: task?.attemptCount ?? (existing?.attempts ?? 0) + 1,
+      lastAuditIssues: task?.auditIssues,
+      lastUserGuidance: task?.userGuidance,
     });
     this.recentToolCalls = [];
     this.recentToolCallDetails = [];
@@ -160,11 +168,29 @@ export class TriageAgent {
 
     // 2. Same tool called repeatedly (loop detection)
     if (this.recentToolCalls.length >= LOOP_SAME_TOOL_THRESHOLD) {
-      const last = this.recentToolCalls.slice(-LOOP_SAME_TOOL_THRESHOLD);
-      if (last.every(t => t === last[0])) {
-        this.pendingSteerMessage = `${GUIDANCE_TOOL_LOOP} (${last[0]} called ${LOOP_SAME_TOOL_THRESHOLD}x in a row)`;
-        log(`Triage live: tool loop (${last[0]} repeated)`, 'WARN');
+      const lastNames = this.recentToolCalls.slice(-LOOP_SAME_TOOL_THRESHOLD);
+      const lastDetails = this.recentToolCallDetails.slice(-LOOP_SAME_TOOL_THRESHOLD);
+      
+      // Strict identical call check (same tool + same args)
+      const firstArgs = JSON.stringify(lastDetails[0].args);
+      const allIdenticalCalls = lastDetails.every(d => d.name === lastDetails[0].name && JSON.stringify(d.args) === firstArgs);
+      
+      if (allIdenticalCalls) {
+        this.pendingSteerMessage = `${GUIDANCE_TOOL_LOOP} (Identical ${lastDetails[0].name} called ${LOOP_SAME_TOOL_THRESHOLD}x in a row with same arguments)`;
+        log(`Triage live: identical tool loop (${lastDetails[0].name})`, 'WARN');
         return;
+      }
+
+      // Name-only check: only flag if it's a very long sequence (e.g. 8x) 
+      // to avoid blocking legitimate batch file writes.
+      const NAME_ONLY_THRESHOLD = 8;
+      if (this.recentToolCalls.length >= NAME_ONLY_THRESHOLD) {
+        const lastNamesLong = this.recentToolCalls.slice(-NAME_ONLY_THRESHOLD);
+        if (lastNamesLong.every(t => t === lastNamesLong[0])) {
+           this.pendingSteerMessage = `${GUIDANCE_TOOL_LOOP} (${lastNamesLong[0]} called ${NAME_ONLY_THRESHOLD}x in a row)`;
+           log(`Triage live: long tool sequence (${lastNamesLong[0]} repeated ${NAME_ONLY_THRESHOLD}x)`, 'WARN');
+           return;
+        }
       }
     }
 
@@ -206,6 +232,27 @@ export class TriageAgent {
       log(`Triage live: re-read+create cycle detected (${cycles} cycles)`, 'WARN');
       return;
     }
+
+    // 6. Repeated attempts check
+    if (snap.attempts > 1 && snap.turnCount === 0) {
+      const guidance = snap.lastUserGuidance ? `\n\nPrevious guidance/feedback: "${snap.lastUserGuidance}"` : '';
+      const audit = snap.lastAuditIssues && snap.lastAuditIssues.length > 0 
+        ? `\n\nLast structural audit issues: ${JSON.stringify(snap.lastAuditIssues)}` 
+        : '';
+      
+      let force = `You are on attempt ${snap.attempts} for this task. Please be extra careful to resolve previous issues.`;
+      if (snap.attempts >= 3) {
+        force = `CRITICAL: This is your LAST ATTEMPT (${snap.attempts}/3) for this task. You have repeatedly failed verification or review. 
+YOU MUST:
+1. List every point of feedback/failure mentioned below.
+2. Explain how you are fixing each point in your thinking block.
+3. Verify the final code for syntax errors and typos before finishing.`;
+      }
+
+      this.pendingSteerMessage = `${force}${guidance}${audit}`;
+      log(`Triage live: task retry (attempt ${snap.attempts})`, 'INFO');
+      return;
+    }
   }
 
   async analyzeBetweenTasks(): Promise<TriageAction> {
@@ -230,8 +277,10 @@ export class TriageAgent {
     let pressureReadings = 0;
     let maxTurnRatio = 0;
     let totalLogErrors = 0;
+    let maxAttempts = 0;
 
     for (const snap of this.snapshots.values()) {
+      maxAttempts = Math.max(maxAttempts, snap.attempts);
       for (const [tool, count] of snap.toolFailures) {
         totalToolFailures += count;
         if (count > maxConsecutiveFailures) {
@@ -254,8 +303,9 @@ export class TriageAgent {
     const hasToolThrash = maxConsecutiveFailures >= THRASH_TOOL_FAIL_THRESHOLD;
     const hasTurnExhaustion = maxTurnRatio >= TURN_EXHAUSTION_RATIO;
     const hasLogErrors = totalLogErrors >= LOG_ERROR_THRESHOLD;
+    const hasHighAttempts = maxAttempts >= 3;
 
-    if (!hasToolThrash && !hasTurnExhaustion && !hasLogErrors) {
+    if (!hasToolThrash && !hasTurnExhaustion && !hasLogErrors && !hasHighAttempts) {
       if (hasHighPressure) {
         log('Triage: high context pressure detected, forcing compaction', 'INFO');
         return { type: 'compress', reason: `Context at ${(avgPressure * 100).toFixed(0)}%` };
@@ -268,6 +318,7 @@ export class TriageAgent {
     contextLines.push(`Context pressure: ${(avgPressure * 100).toFixed(0)}% (${pressureReadings} readings)`);
     contextLines.push(`Turn exhaustion: ${(maxTurnRatio * 100).toFixed(0)}% of max steps`);
     contextLines.push(`Log errors: ${totalLogErrors}`);
+    contextLines.push(`Max task attempts: ${maxAttempts}`);
 
     log('Triage: pattern detected, calling observer model', 'INFO');
     const action = await this.callTriageModel(contextLines.join('\n'));
@@ -351,9 +402,10 @@ export function withTriageHooks(
   return {
     ...baseHooks,
 
-    reset() {
-      baseHooks.reset?.();
-      if (triage.currentTaskId) triage.reset(triage.currentTaskId);
+    reset(task?: Task) {
+      baseHooks.reset?.(task);
+      if (task) triage.reset(task.id, task);
+      else if (triage.currentTaskId) triage.reset(triage.currentTaskId);
     },
 
     async afterToolCall(ctx: AfterToolCallContext) {

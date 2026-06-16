@@ -206,6 +206,7 @@ export class Scheduler {
   private async executeTask(task: Task) {
     this.runningTasks.add(task.id);
     task.status = 'in_progress';
+    task.attemptCount = (task.attemptCount || 0) + 1;
     this.failedTasks.delete(task.id);
     if (this.triageAgent) this.triageAgent.currentTaskId = task.id;
 
@@ -225,7 +226,21 @@ export class Scheduler {
         if (config.ENABLE_REVIEWER && updatedTask.type === 'code') {
           const { Reviewer } = await import('./reviewer.js');
           const reviewer = new Reviewer();
-          const review = await reviewer.reviewTask(updatedTask, this._mission);
+
+          // Read actual file contents for the reviewer
+          const fileContents = new Map<string, string>();
+          for (const file of updatedTask.files) {
+            const fullPath = join(this._mission.workspace_root, file);
+            if (existsSync(fullPath)) {
+              try {
+                fileContents.set(file, readFileSync(fullPath, 'utf8'));
+              } catch (err) {
+                log(`Failed to read file for review: ${file}`, 'WARN');
+              }
+            }
+          }
+
+          const review = await reviewer.reviewTask(updatedTask, this._mission, fileContents);
           
           if (review.approved) {
             log(`Task approved by reviewer: ${updatedTask.title}`, 'INFO');
@@ -240,9 +255,9 @@ export class Scheduler {
             await this.runTriageAnalysis();
           } else {
             log(`Task REJECTED by reviewer: ${updatedTask.title}. Feedback: ${review.feedback}`, 'WARN');
-            if (!updatedTask.userGuidance) {
-              // First rejection: auto-retry with reviewer feedback as guidance
-              log(`Auto-retrying task with reviewer feedback: ${updatedTask.title}`, 'INFO');
+            if (updatedTask.attemptCount && updatedTask.attemptCount < 3) {
+              // Auto-retry with reviewer feedback as guidance
+              log(`Auto-retrying task with reviewer feedback: ${updatedTask.title} (Attempt ${updatedTask.attemptCount})`, 'INFO');
               updatedTask.status = 'todo';
               updatedTask.error = undefined;
               updatedTask.output = undefined;
@@ -251,12 +266,11 @@ export class Scheduler {
               this.completedTasks.delete(task.id);
               this.taskMap.set(task.id, updatedTask);
               this.runningTasks.delete(task.id);
-              // Main run() loop will pick up the reset task on next tick
               return;
             }
-            // Second rejection: escalate to user
+            // Max rejections or no attempt count: escalate to user
             updatedTask.status = 'failed';
-            updatedTask.error = `Review Rejected: ${review.feedback}`;
+            updatedTask.error = `Review Rejected repeatedly: ${review.feedback}`;
             await this.handleTaskFailure(updatedTask);
           }
         } else {
@@ -346,6 +360,8 @@ export class Scheduler {
           t.status = 'todo';
           t.error = undefined;
           t.output = undefined;
+          t.attemptCount = 0;
+          t.verificationRetries = 0;
           this.completedTasks.delete(t.id);
           this.failedTasks.delete(t.id);
           this.taskMap.set(t.id, t);
@@ -399,6 +415,16 @@ export class Scheduler {
 
     if (auditIssuesMessage) {
       log(`Verification failed for task: ${updatedTask.title}`, 'WARN');
+      updatedTask.verificationRetries = (updatedTask.verificationRetries || 0) + 1;
+      
+      if (updatedTask.verificationRetries > 3) {
+        log(`Max verification retries hit for: ${updatedTask.title}`, 'ERROR');
+        updatedTask.status = 'failed';
+        updatedTask.error = `Verification repeatedly failed:\n${auditIssuesMessage}`;
+        await this.handleTaskFailure(updatedTask);
+        return false;
+      }
+
       updatedTask.auditIssues = auditIssuesList.length > 0 ? auditIssuesList : undefined;
       updatedTask.status = 'todo';
       updatedTask.error = undefined;

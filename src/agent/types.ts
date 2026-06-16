@@ -23,6 +23,10 @@ export const TaskSchema = z.object({
   userGuidance: z.string().optional(),
   // Extra steps granted on retry (added to MAX_STEPS)
   extraSteps: z.number().optional(),
+  // Number of times the task has been executed
+  attemptCount: z.number().optional(),
+  // Number of times verification (audit/build) has failed
+  verificationRetries: z.number().optional(),
   // Issues found during pre-completion structural audit
   auditIssues: z.array(z.object({
     type: z.enum(['import', 'css_orphan', 'syntax', 'prop_mismatch', 'dead_code']),
@@ -206,7 +210,7 @@ export interface AgentLoopHooks {
   getFollowUpMessages?: () => Promise<ExecutionEvent[]>;
 
   /** Optional hook to reset transient loop/thrash state at task boundary. */
-  reset?: () => void;
+  reset?: (task?: Task) => void;
 }
 
 /** Action returned by the triage agent after analysing agent health. */

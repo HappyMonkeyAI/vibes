@@ -44,10 +44,14 @@ function getRoleContract(role: ModelPromptRole): string {
   switch (role) {
     case 'executor':
       return `VIBES EXECUTOR CONTRACT:
+- Priority 1: If the current task has [USER GUIDANCE] or "Reviewer feedback", YOU MUST address every specific point mentioned there first.
 - Prefer the native Vibes function tools supplied with the request.
 - Do not emit unified diffs unless a tool result explicitly asks for one.
 - If native tool calling is unavailable, use the JSON fallback format defined by the main system prompt.
-- After tool execution, report completion only when the acceptance criteria have been verified.`;
+- After tool execution, report completion only when the acceptance criteria have been verified.
+- CODE QUALITY: Ensure correct syntax for the target language.
+- JSX PITFALL: In React, dynamic attributes MUST use curly braces directly (e.g. className={variable}) or template literals (e.g. className=\`base \${var}\`). NEVER put curly braces inside a literal string like className="base {var}".
+- JSON SAFETY: When writing code inside a tool call, ensure all quotes and special characters are properly escaped for JSON.`;
     case 'planner':
       return `VIBES PLANNER CONTRACT:
 - Return exactly one raw JSON mission-plan object matching the schema in the main system prompt.
@@ -65,11 +69,12 @@ function getRoleContract(role: ModelPromptRole): string {
 }
 
 export function getModelSpecificPrompt(modelName: string, role: ModelPromptRole): string {
-  if (!isGemma12BModel(modelName)) return '';
+  const roleContract = getRoleContract(role);
+  if (!isGemma12BModel(modelName)) return `\n\n[CONTRACT]:\n${roleContract}\n`;
 
   return `\n\n[MODEL-SPECIFIC INSTRUCTIONS: GEMMA 4 12B QAT]
 ${loadGemma12BPrompt()}
 
-${getRoleContract(role)}
+${roleContract}
 [END MODEL-SPECIFIC INSTRUCTIONS]\n`;
 }

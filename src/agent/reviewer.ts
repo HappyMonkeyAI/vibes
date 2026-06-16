@@ -3,14 +3,24 @@ import { Task, Mission } from './types.js';
 import { log } from '../logger.js';
 import { config } from '../config.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
+import { extractJsonContent } from './json-repair.js';
 
 export class Reviewer {
-  async reviewTask(task: Task, mission: Mission): Promise<{ approved: boolean; feedback?: string }> {
+  async reviewTask(task: Task, mission: Mission, fileContents?: Map<string, string>): Promise<{ approved: boolean; feedback?: string }> {
     log(`Reviewing task: ${task.title}`, 'INFO');
     const modelSpecificPrompt = getModelSpecificPrompt(config.REVIEWER_MODEL, 'reviewer');
 
+    let filesSection = '';
+    if (fileContents && fileContents.size > 0) {
+      filesSection = '\n\nFile Contents on Disk:\n';
+      for (const [path, content] of fileContents) {
+        filesSection += `--- FILE: ${path} ---\n${content}\n---\n`;
+      }
+    }
+
     const systemPrompt = `You are a Senior Software Engineer performing a code review.
 Review the task completion based on the description and acceptance criteria.
+You are given the agent's summary and the actual file contents from the disk.
 Output ONLY a JSON object.
 ${modelSpecificPrompt}
 
@@ -31,8 +41,8 @@ Description: ${task.description}
 Acceptance Criteria:
 ${task.acceptance_criteria.map(c => `- ${c}`).join('\n')}
 
-Task Output:
-${task.output || 'No output provided.'}`;
+Task Output Summary:
+${task.output || 'No output provided.'}${filesSection}`;
 
     try {
       const response = await getOllamaClient('reviewer').chat.completions.create({
@@ -45,9 +55,10 @@ ${task.output || 'No output provided.'}`;
       });
 
       const msg = response.choices[0]?.message as any;
-      const content = msg?.content || msg?.reasoning_content || '';
+      let content = msg?.content || msg?.reasoning_content || '';
       if (!content) throw new Error('No response from reviewer');
 
+      content = extractJsonContent(content);
       const result = JSON.parse(content);
       return result;
     } catch (error: any) {

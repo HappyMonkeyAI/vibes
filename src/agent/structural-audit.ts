@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname, resolve, extname, relative, sep } from 'path';
+import { join, dirname, resolve, extname, relative, sep, isAbsolute } from 'path';
 import { log } from '../logger.js';
 import { detectTechStack } from './tech-stack.js';
 
@@ -9,11 +9,12 @@ export interface AuditIssue {
   message: string;
 }
 
-const IMPORT_RE = /(?:from\s+|require\s*\(\s*)['"]([^'"]+)['"]/g;
+const IMPORT_RE = /(?:from\s+|require\s*\(\s*|import\s+)['"]([^'"]+)['"]/g;
 const IMPORT_RE_EXPORT = /export\s+\{[^}]*\}\s*from\s+['"]([^'"]+)['"]/g;
-const CSS_IMPORT_RE = /import\s+['"]([^'"]+\.css)['"]/g;
 
-const EXT_ORDER = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json'];
+const EXT_ORDER = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.css', '.scss', '.sass', '.less', '.svg'];
+
+const ASSET_EXTS = ['.css', '.scss', '.sass', '.less', '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp'];
 
 function resolveImportPath(baseDir: string, importPath: string, workspaceRoot?: string): string | null {
   if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
@@ -22,22 +23,50 @@ function resolveImportPath(baseDir: string, importPath: string, workspaceRoot?: 
   const resolved = resolve(baseDir, importPath);
 
   // Guard: prevent path traversal outside the workspace root.
-  // A malicious repo could embed `import foo from '../../../../etc/passwd'`.
   if (workspaceRoot) {
-    const root = resolve(workspaceRoot) + sep;
-    if (!resolved.startsWith(root)) return null;
+    const root = resolve(workspaceRoot);
+    const rel = relative(root, resolved);
+    if (rel.startsWith('..') || isAbsolute(rel)) return null;
   }
 
+  // 1. Direct match
   if (existsSync(resolved) && statSync(resolved).isFile()) return resolved;
+
+  // 2. Try extensions
   for (const ext of EXT_ORDER) {
     const withExt = resolved + ext;
     if (existsSync(withExt)) return withExt;
   }
+
+  // 3. Try directory index
   const indexDir = join(resolved, 'index');
   for (const ext of EXT_ORDER) {
     const indexPath = indexDir + ext;
     if (existsSync(indexPath)) return indexPath;
   }
+
+  // 4. Case-insensitivity fallback (Linux safety)
+  // If the agent imports "./badge.module.css" but the file is "Badge.module.css"
+  try {
+    const dir = dirname(resolved);
+    const file = importPath.split('/').pop() || '';
+    if (existsSync(dir) && statSync(dir).isDirectory()) {
+      const entries = readdirSync(dir);
+      const lowerFile = file.toLowerCase();
+      
+      // Check for name match (ignoring extension)
+      for (const entry of entries) {
+        if (entry.toLowerCase() === lowerFile) return join(dir, entry);
+        // Check with extensions
+        for (const ext of EXT_ORDER) {
+          if (entry.toLowerCase() === lowerFile + ext) return join(dir, entry);
+        }
+      }
+    }
+  } catch {
+    // Ignore errors in fallback
+  }
+
   return null;
 }
 
@@ -171,31 +200,84 @@ function getDefinitionBraceDepth(content: string, identifier: string): number | 
 export function runStructuralAudit(workspaceRoot: string, taskFiles: string[]): AuditIssue[] {
   const issues: AuditIssue[] = [];
 
+  // Check for existence of all files claimed by the task
+  for (const taskFile of taskFiles) {
+    const fullPath = resolve(workspaceRoot, taskFile);
+    let exists = existsSync(fullPath);
+    
+    // If exact path doesn't exist, try variants
+    if (!exists) {
+      // 1. Try stripping extension and trying others
+      const ext = extname(fullPath);
+      const base = ext ? fullPath.slice(0, -ext.length) : fullPath;
+      
+      for (const e of EXT_ORDER) {
+        if (existsSync(base + e)) {
+          exists = true;
+          break;
+        }
+      }
+
+      // 2. Try directory index (e.g. src/components/Button -> src/components/Button/index.tsx)
+      if (!exists) {
+        const indexBase = join(fullPath, 'index');
+        for (const e of EXT_ORDER) {
+          if (existsSync(indexBase + e)) {
+            exists = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!exists) {
+      issues.push({
+        type: 'import',
+        file: taskFile,
+        message: 'File (or variant with common extension/index) was not created or is missing at the expected path',
+      });
+    }
+  }
+
   const stack = detectTechStack(workspaceRoot);
   log(`Structural audit: detected tech stack: ${stack.join(', ')}`, 'INFO');
 
   const srcDir = join(workspaceRoot, 'src');
   const auditDir = existsSync(srcDir) ? srcDir : workspaceRoot;
 
-  const extensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.css'];
+  const extensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.css', '.scss', '.sass', '.less'];
   const files = collectFiles(auditDir, extensions);
 
-  const importedCssFiles = new Set<string>();
+  const importedAssetFiles = new Set<string>();
 
   for (const file of files) {
-    const ext = extname(file);
+    const ext = extname(file).toLowerCase();
     if (ext === '.ts' || ext === '.tsx' || ext === '.js' || ext === '.jsx') {
       const content = readFileSync(file, 'utf8');
-      CSS_IMPORT_RE.lastIndex = 0;
+      
+      const checkAndAdd = (imp: string) => {
+        const lower = imp.toLowerCase();
+        if (ASSET_EXTS.some(e => lower.endsWith(e)) || lower.includes('.module.')) {
+          const resolved = resolveImportPath(dirname(file), imp, workspaceRoot);
+          if (resolved) importedAssetFiles.add(resolved);
+        }
+      };
+
+      IMPORT_RE.lastIndex = 0;
       let m: RegExpExecArray | null;
-      while ((m = CSS_IMPORT_RE.exec(content)) !== null) {
-        importedCssFiles.add(resolve(dirname(file), m[1]));
+      while ((m = IMPORT_RE.exec(content)) !== null) {
+        checkAndAdd(m[1]);
+      }
+      
+      IMPORT_RE_EXPORT.lastIndex = 0;
+      while ((m = IMPORT_RE_EXPORT.exec(content)) !== null) {
+        checkAndAdd(m[1]);
       }
     }
   }
 
   for (const file of files) {
-    const ext = extname(file);
+    const ext = extname(file).toLowerCase();
     const content = readFileSync(file, 'utf8');
     const relFile = relative(workspaceRoot, file);
 
@@ -205,11 +287,16 @@ export function runStructuralAudit(workspaceRoot: string, taskFiles: string[]): 
       let m: RegExpExecArray | null;
       IMPORT_RE.lastIndex = 0;
       while ((m = IMPORT_RE.exec(content)) !== null) {
-        importPaths.push(m[1]);
+        // Filter out absolute library imports unless they are relative-like
+        if (m[1].startsWith('.') || m[1].startsWith('/')) {
+          importPaths.push(m[1]);
+        }
       }
       IMPORT_RE_EXPORT.lastIndex = 0;
       while ((m = IMPORT_RE_EXPORT.exec(content)) !== null) {
-        importPaths.push(m[1]);
+        if (m[1].startsWith('.') || m[1].startsWith('/')) {
+          importPaths.push(m[1]);
+        }
       }
 
       for (const imp of importPaths) {
@@ -452,24 +539,28 @@ export function runStructuralAudit(workspaceRoot: string, taskFiles: string[]): 
       }
     }
 
-    // 4. CSS Checks
-    if (ext === '.css' && (stack.includes('css') || stack.includes('javascript') || stack.includes('react'))) {
-      if (!importedCssFiles.has(file)) {
+    // 4. CSS/Asset Checks
+    if (ASSET_EXTS.includes(ext) && (stack.includes('css') || stack.includes('javascript') || stack.includes('react'))) {
+      const isTaskFile = taskFiles.some(tf => resolve(workspaceRoot, tf) === file);
+      
+      if (isTaskFile && !importedAssetFiles.has(file)) {
         issues.push({
           type: 'css_orphan',
           file: relFile,
-          message: 'CSS file is not imported by any component',
+          message: 'Asset file was created or modified by this task but is not imported by any component',
         });
       }
 
       // Strip CSS comments to avoid false matches in comments
-      const cleanCss = content.replace(/\/\*[\s\S]*?\*\//g, '');
-      if (/^\s*import\b/m.test(cleanCss)) {
-        issues.push({
-          type: 'syntax',
-          file: relFile,
-          message: 'CSS file uses JavaScript-style "import" syntax. Use CSS "@import" instead.',
-        });
+      if (ext === '.css' || ext === '.scss' || ext === '.sass' || ext === '.less') {
+        const cleanCss = content.replace(/\/\*[\s\S]*?\*\//g, '');
+        if (/^\s*import\b/m.test(cleanCss)) {
+          issues.push({
+            type: 'syntax',
+            file: relFile,
+            message: 'CSS file uses JavaScript-style "import" syntax. Use CSS "@import" instead.',
+          });
+        }
       }
     }
   }

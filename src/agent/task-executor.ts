@@ -248,7 +248,7 @@ export class TaskExecutor {
     techStack?: string[],
   ): Promise<Task> {
     if (this.hooks?.reset) {
-      this.hooks.reset();
+      this.hooks.reset(task);
     }
     log(`Executing task: ${task.title}`, 'INFO');
 
@@ -324,10 +324,11 @@ Rules:
 1. USE TOOLS HONESTLY. If a tool returns an error, YOU MUST ACKNOWLEDGE IT.
 2. DO NOT hallucinate success. If a command fails, report the failure and try to fix it.
 3. All relative paths are relative to the Working Directory.
-4. Once all criteria are met AND VERIFIED, provide a summary and stop.
-5. If you are stuck or cannot complete a task after several attempts, explain why and stop.
-6. Keep file writes concise. Avoid unnecessarily large outputs.
-7. TOOL CALLING FALLBACK: If standard tool-calling APIs fail, throw an error, or are unavailable, you can invoke a tool by outputting a JSON object inside markdown code fences:
+4. VERIFY YOUR WORK. Before providing a summary and stopping, you MUST use a tool (like \`list_dir\`, \`file_read\`, or \`ls\`) to confirm that any files you intended to create or modify actually exist and contain the correct content. Do not assume a tool call succeeded just because you issued it.
+5. Once all criteria are met AND VERIFIED, provide a summary and stop.
+6. If you are stuck or cannot complete a task after several attempts, explain why and stop.
+7. Keep file writes concise. Avoid unnecessarily large outputs.
+8. TOOL CALLING FALLBACK: If standard tool-calling APIs fail, throw an error, or are unavailable, you can invoke a tool by outputting a JSON object inside markdown code fences:
 \`\`\`json
 {
   "tool": "tool_name",
@@ -483,6 +484,22 @@ const MSG_HARD_CAP = 150;
 
         messages.push(message as ChatCompletionMessageParam);
 
+        // ── Blank Response Detection ────────────────────────────────
+        const isBlank = !message.content && (!message.tool_calls || message.tool_calls.length === 0);
+        if (isBlank) {
+          log('Agent returned a blank response (no content, no tool calls)', 'WARN');
+          const blankCount = messages.filter(m => m.role === 'assistant' && !m.content && (!m.tool_calls || m.tool_calls.length === 0)).length;
+          
+          if (blankCount >= 3) {
+            currentTask = { ...currentTask, status: 'failed', error: 'Agent stuck in blank response loop (3+ empty turns)' };
+            return currentTask;
+          }
+
+          // Inject a steer message to nudge the model
+          messages.push({ role: 'user', content: '[SYSTEM]: Your last response was empty. If you are finished, provide a summary of your work and stop. If not, please proceed with the next step of the task.' });
+          continue;
+        }
+
         // shouldStopAfterTurn on text-only answers (when no tool calls)
         if (!message.tool_calls?.length && message.content) {
           const stop = await this.invokeShouldStopAfterTurn(message, [], messages);
@@ -516,7 +533,19 @@ const MSG_HARD_CAP = 150;
               args = JSON.parse(toolCall.function.arguments);
               parsed = true;
             } catch (parseError: any) {
-              preResult = { success: false, error: `JSON parse error: ${parseError.message}` };
+              const { repairJson } = await import('./json-repair.js');
+              const repaired = repairJson(toolCall.function.arguments);
+              if (repaired) {
+                try {
+                  args = JSON.parse(repaired);
+                  parsed = true;
+                  log(`Repaired tool call JSON for ${toolCall.function.name}`, 'INFO');
+                } catch {
+                  preResult = { success: false, error: `JSON parse error: ${parseError.message}` };
+                }
+              } else {
+                preResult = { success: false, error: `JSON parse error: ${parseError.message}` };
+              }
             }
 
             onEvent?.({
