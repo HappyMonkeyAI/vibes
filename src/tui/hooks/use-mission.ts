@@ -26,6 +26,7 @@ export const useMission = () => {
   const [isYoloMode, setIsYoloMode] = useState(config.YOLO_MODE);
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [triageState, setTriageState] = useState<{ state: 'watching' | 'guiding' | 'escalated'; message?: string } | null>(null);
+  const [governorStats, setGovernorStats] = useState<{ turnsUsed: number; maxTurns: number; tokensUsed: number; maxTokens: number } | null>(null);
 
   // Hold a direct ref to the running scheduler so we can resolve interventions on it
   const schedulerRef = useRef<Scheduler | null>(null);
@@ -175,6 +176,14 @@ export const useMission = () => {
         if (event.type === 'triage_state') {
           setTriageState({ state: event.state, message: event.message });
         }
+        if (event.type === 'governor_update') {
+          setGovernorStats({
+            turnsUsed: event.turnsUsed,
+            maxTurns: event.maxTurns,
+            tokensUsed: event.tokensUsed,
+            maxTokens: event.maxTokens,
+          });
+        }
 
         // Buffer events and flush periodically to avoid re-render storming
         eventBufferRef.current.push(event);
@@ -239,6 +248,7 @@ export const useMission = () => {
     setContextUsage(null);
     setPendingIntervention(null);
     setActiveMaxSteps(config.MAX_STEPS);
+    setGovernorStats(null);
   }, []);
 
   const loadSession = useCallback((session: SessionData) => {
@@ -285,6 +295,7 @@ export const useMission = () => {
     isYoloMode,
     sessions,
     triageState,
+    governorStats,
     startMission,
     approveMission,
     rejectMission,

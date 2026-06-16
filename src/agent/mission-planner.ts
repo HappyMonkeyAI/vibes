@@ -104,7 +104,8 @@ Constraints:
 - Use openssl, ssh-keygen, gpg, or any cryptography tooling.
 
 11. A request for a "web app" means: HTML, CSS, and JavaScript files only. Not a build pipeline, not a service worker, not a deployment config — unless explicitly asked.
-12. Define task dependencies in the "depends_on" field using the exact titles of prerequisite tasks in the plan. If there are no prerequisites, use an empty array. Design the plan so that file creation, code implementation, test suites, and manual verifications follow a logical sequence.`;
+12. Define task dependencies in the "depends_on" field using the exact titles of prerequisite tasks in the plan. If there are no prerequisites, use an empty array. Design the plan so that file creation, code implementation, test suites, and manual verifications follow a logical sequence.
+13. When planning a React, Vite, or web application project, ensure that the project setup or configuration task includes all necessary root entrypoint and index files (such as \`index.html\`, \`src/main.tsx\`, \`src/index.tsx\`, etc. as appropriate for the stack) in its file list so that subsequent build verification checks do not fail due to missing entry modules.`;
 
     const response = await getOllamaClient('planner').chat.completions.create({
       model: plannerModel,
@@ -290,10 +291,65 @@ Constraints:
         })),
       };
 
-      return MissionSchema.parse(planWithIds);
+      const mission = MissionSchema.parse(planWithIds);
+
+      // Post-plan validation: check that key entities from the original request
+      // appear somewhere in the plan. This catches cases where the planner silently
+      // drops requirements (e.g., "Input component" dropped from "Button, Input, Card, Badge").
+      this.validatePlanCoverage(description, mission);
+
+      return mission;
     } catch (error: any) {
       log(`Failed to process mission plan: ${error.message}`, 'ERROR');
       throw error;
+    }
+  }
+
+  /**
+   * Lightweight post-plan validation: extract key entities from the user's
+   * original request and warn if any are absent from the generated plan.
+   * This is a best-effort heuristic, not a hard gate — it logs warnings
+   * so the issue is visible in session logs and triage.
+   */
+  private validatePlanCoverage(description: string, mission: Mission): void {
+    // Extract candidate entity names: capitalized words, quoted strings,
+    // and words following common patterns like "a X component", "an X"
+    const candidates = new Set<string>();
+
+    // Pattern 1: Capitalized words (likely component/entity names)
+    const capitalizedWords = description.match(/\b[A-Z][a-zA-Z]+\b/g) || [];
+    for (const word of capitalizedWords) {
+      // Skip common filler words
+      if (!['Create', 'Build', 'Make', 'Add', 'Write', 'Implement', 'React', 'Use', 'With', 'The', 'And', 'All', 'No', 'Each'].includes(word)) {
+        candidates.add(word.toLowerCase());
+      }
+    }
+
+    // Pattern 2: "a/an X component/module/page/service"
+    const componentPattern = /\b(?:a|an)\s+([A-Za-z]+)\s+(?:component|module|page|service|class|hook|widget)/gi;
+    let match;
+    while ((match = componentPattern.exec(description)) !== null) {
+      candidates.add(match[1].toLowerCase());
+    }
+
+    if (candidates.size === 0) return;
+
+    // Build a searchable string from all task titles and descriptions
+    const planText = mission.milestones
+      .flatMap(m => m.tasks)
+      .map(t => `${t.title} ${t.description}`)
+      .join(' ')
+      .toLowerCase();
+
+    const missing: string[] = [];
+    for (const entity of candidates) {
+      if (!planText.includes(entity)) {
+        missing.push(entity);
+      }
+    }
+
+    if (missing.length > 0) {
+      log(`Plan coverage warning: the following entities from the user request may be missing from the plan: [${missing.join(', ')}]`, 'WARN');
     }
   }
 }

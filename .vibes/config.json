@@ -1,16 +1,20 @@
 {
-  "OLLAMA_MODEL": "gemma-4-12b-coder-fable5-composer2.5-v1",
-  "PLANNER_MODEL": "gemma-4-12b-coder-fable5-composer2.5-v1",
+  "OLLAMA_MODEL": "qwen3.5-9b-deepseek-v4-flash",
+  "PLANNER_MODEL": "qwen3.5-9b-deepseek-v4-flash",
   "CONTEXT_WINDOW": 30000,
   "ENABLE_REVIEWER": true,
   "MAX_CONCURRENT_TASKS": 4,
   "MEMORY_ENABLED": true,
   "CODEX_ENABLED": true,
   "CODEX_TOP_K": 3,
-  "REVIEWER_MODEL": "gemma-4-12b-coder-fable5-composer2.5-v1",
+  "REVIEWER_MODEL": "qwen3.5-9b-deepseek-v4-flash",
   "THINKING_MODE": true,
-  "MAX_STEPS": 100,
+  "MAX_STEPS": 5,
   "MEMORY_USER_ID": "test18",
   "TRIAGE_ENABLED": true,
-  "TRIAGE_MODEL": "qwen3.5-2b-kimi-and-opus-distillation-i1"
+  "TRIAGE_MODEL": "qwen3.5-2b-kimi-and-opus-distillation-i1",
+  "ENABLE_CONTEXT_RECONSTRUCTION": true,
+  "OLLAMA_BASE_URL": "http://192.168.5.157:1234/v1",
+  "LOCAL_MEMORY": true,
+  "ENABLE_NATIVE_TOOLS": true
 }
