@@ -52,6 +52,7 @@ const App = () => {
   );
   const [focusIndex, setFocusIndex] = React.useState(0);
   const [isCodexEnabled, setIsCodexEnabled] = React.useState(settings.CODEX_ENABLED);
+  const lastInputTimeRef = React.useRef(0);
 
   const isIdle = !mission && !isPlanning && !pendingMission;
 
@@ -83,6 +84,10 @@ const App = () => {
   };
 
   useInput((input, key) => {
+    const now = Date.now();
+    const isFastInput = now - lastInputTimeRef.current < 25;
+    lastInputTimeRef.current = now;
+
     if (key.ctrl && input === 'q') exit();
     if (key.meta && input === 'm') {
       setView(prev => prev === 'memory' ? 'dashboard' : 'memory');
@@ -105,8 +110,8 @@ const App = () => {
       return;
     }
 
-    // Suppress nav/toggle keys while modal views or update process are active
-    if (pendingMission || pendingIntervention || updateStatus === 'updating') return;
+    // Suppress nav/toggle keys while modal views, update process, or fast input (pasting) are active
+    if (pendingMission || pendingIntervention || updateStatus === 'updating' || isFastInput) return;
 
     // Handle global system navigation shortcuts (meta/Alt keys) first to prevent input leakage
     if (key.meta) {
