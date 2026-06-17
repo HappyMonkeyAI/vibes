@@ -13,6 +13,7 @@ interface Props {
 export function MultilineTextInput({ defaultValue = '', placeholder = '', onChange, onSubmit, isFocused = true }: Props) {
   const [value, setValue] = useState(defaultValue);
   const [cursorPosition, setCursorPosition] = useState({ line: 0, col: defaultValue.length });
+  const isPastingRef = useRef(false);
   const firstRender = useRef(true);
 
   // Derive lines for rendering and navigation
@@ -38,8 +39,17 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
   useInput((input, key) => {
     if (!isFocused) return;
 
+    if (input === '\u001b[200~') {
+      isPastingRef.current = true;
+      return;
+    }
+    if (input === '\u001b[201~') {
+      isPastingRef.current = false;
+      return;
+    }
+
     if (key.return) {
-      if (key.shift || key.meta || key.ctrl) {
+      if (key.shift || key.meta || key.ctrl || isPastingRef.current) {
         // Insert newline
         const linesBefore = lines.slice(0, cursorPosition.line);
         const currentLine = lines[cursorPosition.line];

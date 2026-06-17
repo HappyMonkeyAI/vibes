@@ -383,5 +383,20 @@ const App = () => {
   );
 };
 
+const cleanup = () => {
+  process.stdout.write('\x1b[?2004l');
+};
+process.on('exit', cleanup);
+process.on('SIGINT', () => {
+  cleanup();
+  process.exit(130);
+});
+process.on('SIGTERM', () => {
+  cleanup();
+  process.exit(143);
+});
+
+process.stdout.write('\x1b[?2004h');
 process.stdout.write('\x1Bc');
 render(<App />);
+
