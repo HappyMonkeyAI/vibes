@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import React from 'react';
-import { render, Box, Text, useInput, useApp } from 'ink';
+import { render, Box, Text, useInput, useApp, useStdout } from 'ink';
 import { EnhancedTextInput } from './tui/components/enhanced-text-input.js';
 import { useMission } from './tui/hooks/use-mission.js';
 import { useUpdateCheck } from './tui/hooks/use-update-check.js';
@@ -31,6 +31,8 @@ const App = () => {
   } = useMission();
 
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const terminalHeight = stdout.rows || 24;
   const {
     updateInfo, status: updateStatus, error: updateError,
     dismissed: updateDismissed, updateLog,
@@ -178,7 +180,7 @@ const App = () => {
   const contextKB = Math.round(settings.CONTEXT_WINDOW / 1024);
 
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" padding={1} height={terminalHeight}>
       {/* Header */}
       <Box justifyContent="space-between" borderStyle="round" borderColor="blue" paddingX={1}>
         <Text bold color="cyan">VIBES TUI</Text>
@@ -216,7 +218,7 @@ const App = () => {
       )}
 
       {/* Main Content */}
-      <Box flexDirection="column" minHeight={15} marginTop={1}>
+      <Box flexDirection="column" flexGrow={1} marginTop={1}>
         {error && view !== 'settings' && (
           <Box borderStyle="single" borderColor="red" paddingX={1} marginBottom={1} flexDirection="column">
             <Text color="red" bold>Error Detected:</Text>
@@ -342,7 +344,7 @@ const App = () => {
               <Text color={view === 'dashboard' ? 'white' : 'blue'}>[Alt+D] Dash</Text>
               <Text color={view === 'mission' ? 'white' : 'blue'}>[Alt+M] Mission</Text>
               <Text color={view === 'trace' ? 'white' : 'blue'}>[Alt+T] Trace</Text>
-              <Text color={view === 'task' ? 'white' : 'blue'}>[Alt+⇧T] Task</Text>
+              <Text color={view === 'task' ? 'white' : 'blue'}>[Alt+Shift+T] Task</Text>
               <Text color={view === 'review' ? 'white' : 'blue'}>[Alt+R] Review</Text>
               <Text color="blue">[Alt+S] Settings</Text>
               <Text color={view === 'log' ? 'white' : 'blue'}>[Alt+L] Logs</Text>

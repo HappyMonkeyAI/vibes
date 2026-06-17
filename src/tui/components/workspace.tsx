@@ -77,7 +77,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         {mission ? (
           <Box flexDirection="column">
             <Text color="white" bold>{mission.title}</Text>
-            <Box marginY={1}>
+            <Box marginY={1} flexDirection="column">
               {allTasks.slice(0, 8).map(task => (
                 <Box key={task.id}>
                   <Text color={task.status === 'done' ? 'green' : task.status === 'in_progress' ? 'yellow' : task.status === 'failed' ? 'red' : 'gray'}>

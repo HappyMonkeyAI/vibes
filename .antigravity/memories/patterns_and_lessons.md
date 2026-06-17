@@ -242,3 +242,13 @@ confidence: high
 - **Fix:** Ignore readings whose total capacity is not positive before calculating live or aggregate pressure. Provider endpoint configuration accepts either an empty fallback value or a syntactically valid URL.
 - **Security:** Public examples and project manifests use localhost or environment-variable placeholders instead of concrete private-service hosts.
 - **Files:** `src/agent/triage-agent.ts`, `src/config.ts`, `.env.example`, `project.json`
+
+### 34. TUI Screen Sizing & Unicode Shortcut Pitfalls
+- **Lesson:** 
+  1. Default `flexDirection` in Ink is `row`. Omitting `flexDirection="column"` on map containers (e.g. active tasks lists) causes items to render side-by-side horizontally, wrapping columns awkwardly.
+  2. Setting hardcoded `minHeight` values on core layout panels without bounding the root Box to `terminalHeight` causes unpredictable rendering gaps and overflows on varying terminal sizes.
+  3. Using non-ASCII Unicode glyphs like `⇧` (Shift arrow) inside shortcut labels causes layout glitches and misrenderings (such as appearing as `O` or an empty box) on standard terminals lacking unicode font fallbacks.
+- **Fix:** Explicitly set `flexDirection="column"` on mapped lists, retrieve terminal rows using `useStdout()` to define a fixed root `height={terminalHeight}`, change core containers to use `flexGrow={1}` to fill space, and use standard ASCII key labels like `Shift+`.
+- **Files:** `src/index.tsx`, `src/tui/components/workspace.tsx`
+- **Commit:** `fix: resolve layout spacing, horizontal active tasks, and unicode key indicator bugs`
+
