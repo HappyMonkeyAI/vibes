@@ -120,7 +120,48 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
       return;
     }
 
-    if (input) {
+    if (key.delete) {
+      const currentLine = lines[cursorPosition.line];
+      const isAtEndOfText = cursorPosition.line === lines.length - 1 && cursorPosition.col >= currentLine.length;
+      
+      if (isAtEndOfText) {
+        if (cursorPosition.col > 0) {
+          const newLine = currentLine.slice(0, cursorPosition.col - 1) + currentLine.slice(cursorPosition.col);
+          const newLines = [...lines];
+          newLines[cursorPosition.line] = newLine;
+          setValue(newLines.join('\n'));
+          setCursorPosition({ ...cursorPosition, col: cursorPosition.col - 1 });
+        } else if (cursorPosition.line > 0) {
+          const prevLine = lines[cursorPosition.line - 1];
+          const newCol = prevLine.length;
+          const newLines = [
+            ...lines.slice(0, cursorPosition.line - 1),
+            prevLine + currentLine,
+            ...lines.slice(cursorPosition.line + 1)
+          ];
+          setValue(newLines.join('\n'));
+          setCursorPosition({ line: cursorPosition.line - 1, col: newCol });
+        }
+      } else {
+        if (cursorPosition.col < currentLine.length) {
+          const newLine = currentLine.slice(0, cursorPosition.col) + currentLine.slice(cursorPosition.col + 1);
+          const newLines = [...lines];
+          newLines[cursorPosition.line] = newLine;
+          setValue(newLines.join('\n'));
+        } else if (cursorPosition.line < lines.length - 1) {
+          const nextLine = lines[cursorPosition.line + 1];
+          const newLines = [
+            ...lines.slice(0, cursorPosition.line),
+            currentLine + nextLine,
+            ...lines.slice(cursorPosition.line + 2)
+          ];
+          setValue(newLines.join('\n'));
+        }
+      }
+      return;
+    }
+
+    if (input && !key.ctrl && !key.meta) {
       const currentLine = lines[cursorPosition.line];
       const newLine = currentLine.slice(0, cursorPosition.col) + input + currentLine.slice(cursorPosition.col);
       const newLines = [...lines];

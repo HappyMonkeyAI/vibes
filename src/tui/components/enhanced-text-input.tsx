@@ -78,7 +78,7 @@ export function EnhancedTextInput({ defaultValue = '', placeholder = '', maxWidt
       }
       return;
     }
-    if (input) {
+    if (input && !key.ctrl && !key.meta) {
       setValue(prev => prev.slice(0, cursorOffset) + input + prev.slice(cursorOffset));
       setCursorOffset(prev => prev + input.length);
     }
