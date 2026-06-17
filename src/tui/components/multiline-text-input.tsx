@@ -14,6 +14,7 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
   const [value, setValue] = useState(defaultValue);
   const [cursorPosition, setCursorPosition] = useState({ line: 0, col: defaultValue.length });
   const isPastingRef = useRef(false);
+  const lastInputTimeRef = useRef(0);
   const firstRender = useRef(true);
 
   // Derive lines for rendering and navigation
@@ -39,6 +40,10 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
   useInput((input, key) => {
     if (!isFocused) return;
 
+    const now = Date.now();
+    const isFastInput = now - lastInputTimeRef.current < 25;
+    lastInputTimeRef.current = now;
+
     if (input === '\u001b[200~') {
       isPastingRef.current = true;
       return;
@@ -49,7 +54,7 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
     }
 
     if (key.return) {
-      if (key.shift || key.meta || key.ctrl || isPastingRef.current) {
+      if (key.shift || key.meta || key.ctrl || isPastingRef.current || isFastInput) {
         // Insert newline
         const linesBefore = lines.slice(0, cursorPosition.line);
         const currentLine = lines[cursorPosition.line];
