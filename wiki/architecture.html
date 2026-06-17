@@ -66,10 +66,11 @@ footer{text-align:center;padding:32px;color:#484f58;font-size:13px;border-top:1p
   <h2>Agent Orchestration Layer</h2>
 
   <h3>Mission Planner (<code>src/agent/mission-planner.ts</code>)</h3>
-  <p>Receives a user's natural language prompt and decomposes it into a structured plan: milestones → tasks with dependencies. Uses a dedicated planner model (or the main model if <code>PLANNER_MODEL</code> is empty). Performs tech-stack detection (one I/O scan of <code>package.json</code> + file tree) at plan time and attaches it to the mission.</p>
+  <p>Receives a user's natural language prompt and decomposes it into a structured plan: milestones → tasks with dependencies. Uses a dedicated planner model (or the main model if <code>PLANNER_MODEL</code> is empty). Performs tech-stack detection (one I/O scan of <code>package.json</code> + file tree) at plan time and attaches it to the mission. The planner prompt enforces acyclic <code>depends_on</code> graphs — component tasks precede styling tasks that import them.</p>
 
   <h3>DAG Scheduler (<code>src/agent/scheduler.ts</code>)</h3>
   <p>Manages task state with a directed acyclic graph. Tracks dependencies, runs ready tasks in parallel up to <code>MAX_CONCURRENT_TASKS</code>, discovers new tasks during execution, and handles human-in-the-loop interventions via promise-blocking. Interventions are resolved via a direct ref (not React state) to keep the agent loop "warm."</p>
+  <p>Deadlock detection lives in <code>src/agent/scheduler-deps.ts</code> (<code>describeDependencyDeadlock()</code>). When no tasks are runnable but tasks remain pending, the scheduler diagnoses circular <code>depends_on</code> chains and fails the mission with an actionable error instead of stalling.</p>
 
   <h3>Task Executor (<code>src/agent/task-executor.ts</code>)</h3>
   <p>Per-task agent loop. For each task:</p>
@@ -114,6 +115,8 @@ Completion ─── LTM update ─── next mission</code></pre>
     <tr><td>Task View</td><td><code>src/tui/components/task-view.tsx</code></td><td>Live agent output, tool calls, reasoning</td></tr>
     <tr><td>Settings</td><td><code>src/tui/components/settings-view.tsx</code></td><td>36-field config editor with Tab navigation</td></tr>
     <tr><td>EnhancedTextInput</td><td><code>src/tui/components/enhanced-text-input.tsx</code></td><td>Custom Ink input with cursor/scroll support</td></tr>
+    <tr><td>MultilineTextInput</td><td><code>src/tui/components/multiline-text-input.tsx</code></td><td>Mission prompt — bracketed paste, multi-chunk retention, Alt+Enter newline</td></tr>
+    <tr><td>Workspace</td><td><code>src/tui/components/workspace.tsx</code></td><td>Mission input shell with workspace-aware routing</td></tr>
     <tr><td>Log Stream</td><td><code>src/tui/components/log-stream-view.tsx</code></td><td>Raw diagnostic log output</td></tr>
     <tr><td>useMission</td><td><code>src/tui/hooks/use-mission.ts</code></td><td>React bridge to Scheduler ref</td></tr>
   </table>
@@ -148,7 +151,9 @@ Completion ─── LTM update ─── next mission</code></pre>
 
   <h2>Safety Systems</h2>
   <ul style="margin-bottom:16px;padding-left:24px">
-    <li style="margin-bottom:6px"><strong>Auto-git snapshots</strong> — pre-mission git commit for undo capability</li>
+    <li style="margin-bottom:6px"><strong>Auto-git snapshots</strong> — pre-mission git commit for undo; auto <code>git init</code> for non-git scratch workspaces</li>
+    <li style="margin-bottom:6px"><strong>Scheduler deadlock detection</strong> — circular dependency diagnosis via <code>scheduler-deps.ts</code></li>
+    <li style="margin-bottom:6px"><strong>Reviewer git fallback</strong> — skips diff when workspace is not a git repo</li>
     <li style="margin-bottom:6px"><strong>Thrash detection</strong> — consecutive identical turn tool sequences trigger pause</li>
     <li style="margin-bottom:6px"><strong>YOLO mode</strong> — bypasses safety limits when user explicitly enables it</li>
     <li style="margin-bottom:6px"><strong>Message hard cap</strong> (150) — prevents OOM in long-running agent loops</li>

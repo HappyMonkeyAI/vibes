@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
-import { Mission } from '../../agent/types.js';
+import { Mission, Task } from '../../agent/types.js';
 import os from 'os';
 
 interface DashboardProps {
@@ -51,16 +51,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ mission, isPlanning, isExe
 
   if (!mission) {
     return (
-      <Box flexDirection="column" padding={1}>
+      <Box flexDirection="column" padding={1} borderStyle="single" borderColor="cyan">
+        <Box justifyContent="center" marginBottom={1}>
+          <Text bold color="cyan">🛸 Vibes Mission Control (Wayland Mode)</Text>
+        </Box>
         {isPlanning ? (
           <Text color="yellow">Planning mission{dots} Analyzing goals and breaking down tasks.</Text>
         ) : (
-          <Box flexDirection="column">
-            <Text color="gray">No active mission. Enter a mission description to begin.</Text>
-            <Box marginTop={1} gap={2}>
-              <Text dimColor>CPU: {systemInfo.cpu}%</Text>
-              <Text dimColor>MEM: {systemInfo.mem}% ({systemInfo.totalMem - systemInfo.freeMem}GB/{systemInfo.totalMem}GB)</Text>
-            </Box>
+          <Box flexDirection="column" alignItems="center">
+            <Text color="gray">Ready for dispatch. Enter a mission description to begin.</Text>
           </Box>
         )}
       </Box>
@@ -69,14 +68,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ mission, isPlanning, isExe
 
   const allTasks = mission.milestones.flatMap(m => m.tasks);
   const completed = allTasks.filter(t => t.status === 'done').length;
-  const inProgress = allTasks.filter(t => t.status === 'in_progress').length;
+  const inProgressTasks = allTasks.filter(t => t.status === 'in_progress');
   const failed = allTasks.filter(t => t.status === 'failed').length;
   const total = allTasks.length;
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
   
   const isFinished = !isExecuting && (completed + failed === total);
 
-  // Context usage color coding
   const getContextColor = (pct: number): string => {
     if (pct >= 90) return 'red';
     if (pct >= 70) return 'yellow';
@@ -84,97 +82,109 @@ export const Dashboard: React.FC<DashboardProps> = ({ mission, isPlanning, isExe
   };
 
   return (
-    <Box flexDirection="column" padding={1} borderStyle="single" borderColor={isFinished ? (failed > 0 ? 'yellow' : 'green') : 'cyan'}>
-      <Box justifyContent="space-between">
-        <Box>
+    <Box flexDirection="column">
+    <Box flexDirection="row" borderStyle="single" borderColor={isFinished ? (failed > 0 ? 'yellow' : 'green') : 'cyan'}>
+      {/* Left Pane: Primary Mission View */}
+      <Box flexDirection="column" width="50%" padding={1} >
+        <Box justifyContent="space-between">
           <Text bold color="white">{mission.title}</Text>
+          {isYoloMode && <Text color="red" bold> [YOLO]</Text>}
+        </Box>
+        <Box paddingBottom={1}>
+          <Text color="gray" italic>{mission.description}</Text>
+        </Box>
+        
+        <Box flexDirection="row" gap={2}>
+          <Box>
+            <Text>Progress: </Text>
+            <Text color="green">[{'█'.repeat(Math.floor(percentage / 5)) + '░'.repeat(20 - Math.floor(percentage / 5))}]</Text>
+          </Box>
+          <Box>
+            <Text>Tasks: </Text>
+            <Text color="green">{completed}</Text>
+            <Text>/</Text>
+            <Text color="yellow">{inProgressTasks.length > 0 ? inProgressTasks.length : ''}</Text>
+            {failed > 0 && <Text color="red">/{failed}✗</Text>}
+            <Text>/{total}</Text>
+          </Box>
+        </Box>
+
+        {contextUsage && (
+          <Box paddingTop={1} flexDirection="row" gap={2}>
+            <Box>
+              <Text>Context: </Text>
+              <Text color={getContextColor(contextUsage.percentage)}>
+                [{'█'.repeat(Math.floor(Math.min(contextUsage.percentage, 100) / 5)) + '░'.repeat(20 - Math.floor(Math.min(contextUsage.percentage, 100) / 5))}]
+              </Text>
+            </Box>
+            <Box>
+              <Text color={getContextColor(contextUsage.percentage)}>
+                ~{Math.round(contextUsage.used / 1000)}K/{Math.round(contextUsage.total / 1000)}K ({contextUsage.percentage}%)
+              </Text>
+            </Box>
+          </Box>
+        )}
+      </Box>
+
+      {/* Right Pane: Background Minions (Wayland Top) */}
+      <Box flexDirection="column" width="50%" padding={1}>
+        <Box marginBottom={1}>
+          <Text bold color="magenta">Minion Threads</Text>
           {isExecuting && <Text color="yellow"> {dots}</Text>}
         </Box>
-        <Text color="blue">{percentage}% Complete</Text>
-      </Box>
-      <Box paddingBottom={1}>
-        <Text color="gray" italic>{mission.description}</Text>
-      </Box>
-      
-      <Box flexDirection="row" gap={2}>
-        <Box>
-          <Text>Progress: </Text>
-          <Text color="green">[{'█'.repeat(Math.floor(percentage / 5)) + '░'.repeat(20 - Math.floor(percentage / 5))}]</Text>
-        </Box>
-        <Box>
-          <Text>Tasks: </Text>
-          <Text color="green">{completed}</Text>
-          <Text>/</Text>
-          <Text color="yellow">{inProgress > 0 ? inProgress : ''}</Text>
-          {failed > 0 && <Text color="red">/{failed}✗</Text>}
-          <Text>/{total}</Text>
-        </Box>
-      </Box>
-
-      {/* Context Window Usage */}
-      {contextUsage && (
-        <Box paddingTop={1} flexDirection="row" gap={2}>
-          <Box>
-            <Text>Context: </Text>
-            <Text color={getContextColor(contextUsage.percentage)}>
-              [{'█'.repeat(Math.floor(Math.min(contextUsage.percentage, 100) / 5)) + '░'.repeat(20 - Math.floor(Math.min(contextUsage.percentage, 100) / 5))}]
-            </Text>
+        
+        {inProgressTasks.length > 0 ? (
+          inProgressTasks.map((task, idx) => (
+            <Box key={task.id} flexDirection="column" marginBottom={1}>
+              <Box>
+                <Text color="yellow">► </Text>
+                <Text color="white" bold>Worker {idx + 1}: </Text>
+                <Text color="gray">{task.type.toUpperCase()}</Text>
+              </Box>
+              <Box paddingLeft={2}>
+                <Text color="cyan">{task.title}</Text>
+              </Box>
+              <Box paddingLeft={2}>
+                <Text dimColor color="gray">Target: {task.files.length > 0 ? task.files[0] : 'workspace'}</Text>
+              </Box>
+            </Box>
+          ))
+        ) : (
+          <Box paddingLeft={2} paddingTop={1}>
+            <Text color="gray" dimColor>No active minion threads.</Text>
           </Box>
-          <Box>
-            <Text color={getContextColor(contextUsage.percentage)}>
-              ~{Math.round(contextUsage.used / 1000)}K/{Math.round(contextUsage.total / 1000)}K tokens ({contextUsage.percentage}%)
-            </Text>
-          </Box>
-          {contextUsage.percentage >= 80 && (
-            <Text color="red" bold> ⚠ HIGH</Text>
-          )}
-        </Box>
-      )}
+        )}
 
-      {/* System Resources */}
-      <Box paddingTop={1} gap={2}>
-        <Box>
-          <Text>CPU: </Text>
-          <Text color={systemInfo.cpu > 80 ? 'red' : systemInfo.cpu > 50 ? 'yellow' : 'green'}>{systemInfo.cpu}%</Text>
-        </Box>
-        <Box>
-          <Text>MEM: </Text>
-          <Text color={systemInfo.mem > 90 ? 'red' : systemInfo.mem > 70 ? 'yellow' : 'green'}>{systemInfo.mem}%</Text>
-          <Text color="gray" dimColor> ({Math.round((systemInfo.totalMem - systemInfo.freeMem) * 10) / 10}GB/{systemInfo.totalMem}GB)</Text>
+        <Box flexGrow={1} flexDirection="column" justifyContent="flex-end" paddingTop={1}>
+          <Box gap={2}>
+            <Box>
+              <Text>CPU: </Text>
+              <Text color={systemInfo.cpu > 80 ? 'red' : systemInfo.cpu > 50 ? 'yellow' : 'green'}>{systemInfo.cpu}%</Text>
+            </Box>
+            <Box>
+              <Text>MEM: </Text>
+              <Text color={systemInfo.mem > 90 ? 'red' : systemInfo.mem > 70 ? 'yellow' : 'green'}>{systemInfo.mem}%</Text>
+            </Box>
+          </Box>
         </Box>
       </Box>
 
-      {isExecuting && (
-        <Box paddingTop={1}>
-          <Text color="yellow">Status: </Text>
-          <Text bold color="yellow">EXECUTING AGENT LOOP</Text>
-          <Text color="yellow"> {dots}</Text>
-          {isYoloMode && <Text color="yellow" bold inverse> [YOLO MODE ENABLED] </Text>}
-          {triageState && triageState.state === 'guiding' && (
-            <Text color="cyan" bold> [TRIAGE GUIDING] </Text>
-          )}
-          {triageState && triageState.state === 'escalated' && (
-            <Text color="red" bold inverse> [TRIAGE ESCALATED] </Text>
-          )}
-        </Box>
-      )}
+    </Box>
 
-      {isFinished && (
-        <Box paddingTop={1} flexDirection="column">
-          <Box>
-            <Text color={failed > 0 ? 'yellow' : 'green'} bold>
-              {failed > 0 ? '⚠ MISSION FINISHED WITH FAILURES' : '✅ MISSION COMPLETED SUCCESSFULLY'}
-            </Text>
-          </Box>
-          <Box marginTop={1}>
-            <Text color="gray">Press </Text>
-            <Text color="cyan" bold>Ctrl+Q</Text>
-            <Text color="gray"> to quit or </Text>
-            <Text color="cyan" bold>Alt+M</Text>
-            <Text color="gray"> to review the mission details.</Text>
-          </Box>
+    {isFinished && (
+      <Box padding={1} borderStyle="single" borderColor={failed > 0 ? 'yellow' : 'green'} flexDirection="column">
+        <Text color={failed > 0 ? 'yellow' : 'green'} bold>
+          {failed > 0 ? '⚠ MISSION FINISHED WITH FAILURES' : '✅ MISSION COMPLETED SUCCESSFULLY'}
+        </Text>
+        <Box marginTop={1}>
+          <Text color="gray">Press </Text>
+          <Text color="cyan" bold>Alt+N</Text>
+          <Text color="gray"> for a new mission or </Text>
+          <Text color="cyan" bold>Alt+M</Text>
+          <Text color="gray"> to review details.</Text>
         </Box>
-      )}
+      </Box>
+    )}
     </Box>
   );
 };

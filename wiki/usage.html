@@ -52,16 +52,20 @@ npx vibes-tui
 
 # Development mode (from repo)
 cd vibes && npm run dev</code></pre>
-  <p>Vibes automatically sets its workspace root to the current directory. Files you ask the agent to read/write/edit are relative to this root.</p>
+  <p>By default, Vibes uses the directory you launched it from as the workspace root. You can override this in <strong>Settings</strong> (<kbd>Alt+S</kbd>) via <code>VIBES_LAUNCH_DIR</code> — missions will read/write files relative to that path instead. All agent file operations are scoped to the active workspace root.</p>
 
   <h2>Views</h2>
-  <p>Vibes has four main views, switchable with keyboard shortcuts:</p>
+  <p>Vibes has multiple views, switchable with keyboard shortcuts:</p>
   <table>
     <tr><th>Key</th><th>View</th><th>Description</th></tr>
     <tr><td><kbd>Alt+D</kbd></td><td><strong>Dashboard</strong></td><td>High-level progress, statistics, current mission status</td></tr>
-    <tr><td><kbd>Alt+M</kbd></td><td><strong>Missions</strong></td><td>Tree view of missions, milestones, and tasks with dependency graph</td></tr>
-    <tr><td><kbd>Alt+T</kbd></td><td><strong>Tasks</strong></td><td>Live agent output — tool calls, streaming responses, reasoning traces</td></tr>
-    <tr><td><kbd>Alt+S</kbd></td><td><strong>Settings</strong></td><td>Real-time configuration panel (model, limits, features, memory)</td></tr>
+    <tr><td><kbd>Alt+M</kbd></td><td><strong>Mission</strong></td><td>Tree view of missions, milestones, and tasks with dependency graph</td></tr>
+    <tr><td><kbd>Alt+T</kbd></td><td><strong>Trace</strong></td><td>Execution trace — chronological event log for debugging</td></tr>
+    <tr><td><kbd>Alt+Shift+T</kbd></td><td><strong>Task</strong></td><td>Live agent output — tool calls, streaming responses, reasoning traces</td></tr>
+    <tr><td><kbd>Alt+R</kbd></td><td><strong>Review</strong></td><td>Reviewer feedback and approval status for completed tasks</td></tr>
+    <tr><td><kbd>Alt+L</kbd></td><td><strong>Logs</strong></td><td>Raw diagnostic log stream</td></tr>
+    <tr><td><kbd>Alt+H</kbd></td><td><strong>History</strong></td><td>Past mission history</td></tr>
+    <tr><td><kbd>Alt+S</kbd></td><td><strong>Settings</strong></td><td>Real-time configuration panel (model, limits, features, workspace)</td></tr>
   </table>
 
   <h2>Creating a Mission</h2>
@@ -72,9 +76,10 @@ and Suspense integration
 Create a REST API with Express that has CRUD endpoints for tasks, input validation,
 and SQLite storage</code></pre>
   <ol style="margin-bottom:24px;padding-left:24px">
-    <li style="margin-bottom:8px">Type your mission description and press <kbd>Enter</kbd></li>
+    <li style="margin-bottom:8px">Type your mission description. Use <kbd>Alt+Enter</kbd> for a newline, <kbd>Enter</kbd> to submit (works reliably over SSH/Termius).</li>
+    <li style="margin-bottom:8px">Paste multi-line prompts freely — bracketed paste is supported and won't truncate.</li>
     <li style="margin-bottom:8px">Vibes' planner decomposes it into milestones and tasks (shows you the plan)</li>
-    <li style="margin-bottom:8px">The scheduler begins executing tasks — results stream into the Task View</li>
+    <li style="margin-bottom:8px">The scheduler begins executing tasks — results stream into the Task View (<kbd>Alt+Shift+T</kbd>)</li>
     <li style="margin-bottom:8px">Use <kbd>Alt+M</kbd> to see task progress and dependency resolution</li>
   </ol>
   <div class="note"><strong>Tip:</strong> For independent work, craft missions whose tasks don't share file dependencies — the DAG scheduler will run them in parallel.</div>
@@ -83,12 +88,18 @@ and SQLite storage</code></pre>
   <table>
     <tr><th>Key</th><th>Action</th></tr>
     <tr><td><kbd>Alt+D</kbd></td><td>Switch to Dashboard</td></tr>
-    <tr><td><kbd>Alt+M</kbd></td><td>Switch to Missions view</td></tr>
-    <tr><td><kbd>Alt+T</kbd></td><td>Switch to Tasks view</td></tr>
+    <tr><td><kbd>Alt+M</kbd></td><td>Switch to Mission view</td></tr>
+    <tr><td><kbd>Alt+T</kbd></td><td>Switch to Trace view</td></tr>
+    <tr><td><kbd>Alt+Shift+T</kbd></td><td>Switch to Task view</td></tr>
+    <tr><td><kbd>Alt+R</kbd></td><td>Switch to Review view</td></tr>
+    <tr><td><kbd>Alt+L</kbd></td><td>Switch to Logs view</td></tr>
+    <tr><td><kbd>Alt+H</kbd></td><td>Switch to History view</td></tr>
     <tr><td><kbd>Alt+S</kbd></td><td>Open Settings panel</td></tr>
     <tr><td><kbd>Alt+N</kbd></td><td>Create a new mission</td></tr>
+    <tr><td><kbd>Alt+Enter</kbd></td><td>Newline in mission prompt (Enter submits)</td></tr>
     <tr><td><kbd>Alt+Z</kbd></td><td>Undo last mission (git hard-reset to pre-mission snapshot)</td></tr>
     <tr><td><kbd>Alt+Y</kbd></td><td>Toggle YOLO mode on/off</td></tr>
+    <tr><td><kbd>Alt+C</kbd></td><td>Toggle Codex RAG on/off</td></tr>
     <tr><td><kbd>Alt+X</kbd></td><td>Dismiss update notification</td></tr>
     <tr><td><kbd>Ctrl+Q</kbd></td><td>Quit Vibes</td></tr>
     <tr><td><kbd>Tab</kbd></td><td>Cycle focus between panels</td></tr>
@@ -103,12 +114,15 @@ and SQLite storage</code></pre>
   </ul>
 
   <h2>Safety Net: Undo</h2>
-  <p>Vibes automatically takes a git snapshot before every mission. If the agent makes a mess:</p>
+  <p>Vibes automatically takes a git snapshot before every mission. For scratch workspaces that aren't git repos yet, Vibes runs <code>git init</code> and creates an initial commit on first mission approve. If the agent makes a mess:</p>
   <ol style="margin-bottom:16px;padding-left:24px">
     <li style="margin-bottom:6px">Switch to any view</li>
     <li style="margin-bottom:6px">Press <kbd>Alt+Z</kbd></li>
     <li style="margin-bottom:6px">The workspace is hard-reset to the pre-mission state</li>
   </ol>
+
+  <h2>Scheduler Deadlock Detection</h2>
+  <p>If the mission planner creates circular <code>depends_on</code> links (e.g. "Create Card" waits on "Add Styling" while styling waits on Card), the scheduler detects the deadlock and fails the mission with a clear error instead of hanging silently. Component implementation tasks are planned before styling tasks to avoid this. If you see a deadlock error, start a new mission (<kbd>Alt+N</kbd>) — the planner prompt enforces acyclic dependencies.</p>
 
   <h2>Agent Loop Lifecycle</h2>
   <p>Each task goes through these stages visible in the Task View:</p>

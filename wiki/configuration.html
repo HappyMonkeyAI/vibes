@@ -137,6 +137,13 @@ CONTEXT_WINDOW=32768</code></pre>
     <tr><td><code>CODEX_PYTHON_PATH</code></td><td><em>(empty)</em></td><td>Python interpreter path for the Codex script</td></tr>
   </table>
 
+  <h3>📁 Workspace</h3>
+  <table>
+    <tr><th>Key</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>VIBES_LAUNCH_DIR</code></td><td><em>(empty — uses launch directory)</em></td><td>Absolute or relative path where missions read/write files. Set in Settings as "Current Working Dir". Persists to <code>.vibes/config.json</code>.</td></tr>
+  </table>
+  <div class="note"><strong>Tip:</strong> Set <code>VIBES_LAUNCH_DIR</code> to a project folder (e.g. <code>/home/you/my-app</code>) so missions run there even if you launch Vibes from elsewhere.</div>
+
   <h3>📝 Tracing</h3>
   <table>
     <tr><th>Key</th><th>Default</th><th>Description</th></tr>

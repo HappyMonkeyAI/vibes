@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 import React from 'react';
-import { render, Box, Text, useInput, useApp } from 'ink';
+import { render, Box, Text, useInput, useApp, useStdout } from 'ink';
 import { EnhancedTextInput } from './tui/components/enhanced-text-input.js';
 import { useMission } from './tui/hooks/use-mission.js';
 import { useUpdateCheck } from './tui/hooks/use-update-check.js';
 import { useSettings } from './tui/hooks/use-settings.js';
-import { Dashboard } from './tui/components/dashboard.js';
+import { Workspace } from './tui/components/workspace.js';
 import { MissionView } from './tui/components/mission-view.js';
 import { TaskView } from './tui/components/task-view.js';
 import { TraceView } from './tui/components/trace-view.js';
@@ -15,8 +15,11 @@ import { ApprovalView } from './tui/components/approval-view.js';
 import { InterventionView } from './tui/components/intervention-view.js';
 import { LogStreamView } from './tui/components/log-stream-view.js';
 import { UpdateNotification } from './tui/components/update-notification.js';
+import { MissionCompleteBanner, getMissionOutcome } from './tui/components/mission-complete-banner.js';
 import { DiffView } from './tui/components/diff-view.js';
+import { MemoryView, MemoryPartition } from './tui/components/memory-view.js';
 import { initLogger } from './logger.js';
+import { initShiftKeyTracker } from './tui/shift-key-tracker.js';
 import { hasPersistentConfig } from './config.js';
 import path from 'path';
 
@@ -30,6 +33,9 @@ const App = () => {
   } = useMission();
 
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const terminalHeight = stdout.rows || 24;
+  const terminalWidth = stdout.columns || 80;
   const {
     updateInfo, status: updateStatus, error: updateError,
     dismissed: updateDismissed, updateLog,
@@ -42,17 +48,68 @@ const App = () => {
   } = useSettings();
   const closeSettings = React.useCallback(() => setView('dashboard'), []);
 
-  const [workspace, setWorkspace] = React.useState(process.env.VIBES_LAUNCH_DIR || process.cwd());
-  const [view, setView] = React.useState<'dashboard' | 'mission' | 'task' | 'trace' | 'settings' | 'history' | 'log' | 'review'>(
+  const resolveWorkspaceRoot = React.useCallback((launchDir?: string) => {
+    const configured = launchDir?.trim() || process.env.VIBES_LAUNCH_DIR?.trim() || '';
+    if (configured) {
+      return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured);
+    }
+    return process.cwd();
+  }, []);
+
+  const [workspace, setWorkspace] = React.useState(() =>
+    resolveWorkspaceRoot(settings.VIBES_LAUNCH_DIR),
+  );
+
+  React.useEffect(() => {
+    setWorkspace(resolveWorkspaceRoot(settings.VIBES_LAUNCH_DIR));
+  }, [resolveWorkspaceRoot, settings.VIBES_LAUNCH_DIR]);
+  const [view, setView] = React.useState<'dashboard' | 'mission' | 'task' | 'trace' | 'settings' | 'history' | 'log' | 'review' | 'memory'>(
     hasPersistentConfig() ? 'dashboard' : 'settings'
   );
   const [focusIndex, setFocusIndex] = React.useState(0);
   const [isCodexEnabled, setIsCodexEnabled] = React.useState(settings.CODEX_ENABLED);
+  const lastInputTimeRef = React.useRef(0);
 
   const isIdle = !mission && !isPlanning && !pendingMission;
+  const missionOutcome = getMissionOutcome(mission, isExecuting, isPlanning);
+
+  // Mock Memory Partitions for ADR 0005 scaffolding
+  const [memoryPartitions, setMemoryPartitions] = React.useState<MemoryPartition[]>([
+    { id: 'working', title: 'Working Memory', description: 'Active context for current tasks (checkpoint.md)', size: 45000 },
+    { id: 'episodic', title: 'Episodic Memory', description: 'Recent experiences and tool executions (progress.md)', size: 120000 },
+    { id: 'semantic', title: 'Semantic Memory', description: 'Workspace rules, constraints, and architecture guidelines (MEMORY.md)', size: 34000 },
+    { id: 'lessons', title: 'Evolution Lessons', description: 'Trace-driven prompt corrections (evolution_rules.md)', size: 8500 },
+  ]);
+
+  const handleFlushPartition = (id: string) => {
+    // In a real implementation, this would call memory-service.ts to wipe the file
+    setMemoryPartitions(prev => prev.map(p => p.id === id ? { ...p, size: 0 } : p));
+  };
+
+  // Mock chat history for ADR 0006
+  const [chatHistory, setChatHistory] = React.useState<Array<{ role: 'user' | 'agent', text: string }>>([
+    { role: 'agent', text: 'Welcome to Vibes TUI 2.0. How can I assist you today?' }
+  ]);
+
+  const handleSubmitPrompt = (text: string) => {
+    if (!text.trim()) return;
+    setChatHistory(prev => [...prev, { role: 'user', text }]);
+    // In a real implementation, this would call startMission or continueMission
+    if (!mission && !pendingMission && !isExecuting) {
+      startMission(text, workspace);
+    }
+  };
 
   useInput((input, key) => {
+    const now = Date.now();
+    const isFastInput = now - lastInputTimeRef.current < 25;
+    lastInputTimeRef.current = now;
+
     if (key.ctrl && input === 'q') exit();
+    if (key.meta && input === 'm') {
+      setView(prev => prev === 'memory' ? 'dashboard' : 'memory');
+      return;
+    }
     if (key.meta && input === 'c') {
       const newVal = !isCodexEnabled;
       setIsCodexEnabled(newVal);
@@ -70,8 +127,8 @@ const App = () => {
       return;
     }
 
-    // Suppress nav/toggle keys while modal views or update process are active
-    if (pendingMission || pendingIntervention || updateStatus === 'updating') return;
+    // Suppress nav/toggle keys while modal views, update process, or fast input (pasting) are active
+    if (pendingMission || pendingIntervention || updateStatus === 'updating' || isFastInput) return;
 
     // Handle global system navigation shortcuts (meta/Alt keys) first to prevent input leakage
     if (key.meta) {
@@ -146,7 +203,7 @@ const App = () => {
   const contextKB = Math.round(settings.CONTEXT_WINDOW / 1024);
 
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" padding={1} height={terminalHeight} width={terminalWidth}>
       {/* Header */}
       <Box justifyContent="space-between" borderStyle="round" borderColor="blue" paddingX={1}>
         <Text bold color="cyan">VIBES TUI</Text>
@@ -169,6 +226,10 @@ const App = () => {
         </Box>
       )}
 
+      {missionOutcome && !pendingMission && !pendingIntervention && view !== 'settings' && (
+        <MissionCompleteBanner outcome={missionOutcome} />
+      )}
+
       {/* Update Notification */}
       {view !== 'settings' && (
         <UpdateNotification
@@ -184,7 +245,7 @@ const App = () => {
       )}
 
       {/* Main Content */}
-      <Box flexDirection="column" minHeight={15} marginTop={1}>
+      <Box flexDirection="column" flexGrow={1} marginTop={1}>
         {error && view !== 'settings' && (
           <Box borderStyle="single" borderColor="red" paddingX={1} marginBottom={1} flexDirection="column">
             <Text color="red" bold>Error Detected:</Text>
@@ -225,14 +286,22 @@ const App = () => {
           />
         )}
 
+        {view === 'memory' && (
+          <MemoryView
+            partitions={memoryPartitions}
+            onClose={() => setView('dashboard')}
+            onFlushPartition={handleFlushPartition}
+          />
+        )}
+
         {!pendingMission && !pendingIntervention && view === 'dashboard' && (
-          <Dashboard
+          <Workspace
             mission={mission}
             isPlanning={isPlanning}
             isExecuting={isExecuting}
             isYoloMode={isYoloMode}
-            contextUsage={contextUsage}
-            triageState={triageState}
+            onSubmitPrompt={handleSubmitPrompt}
+            chatHistory={chatHistory}
           />
         )}
 
@@ -287,50 +356,9 @@ const App = () => {
           </Box>
         )}
 
-        {isIdle && view !== 'settings' && (
+        {isIdle && view !== 'settings' && view !== 'dashboard' && (
           <Box flexDirection="column" marginTop={1}>
-            <Box marginBottom={1} flexDirection="column">
-              <Box gap={1}>
-                <Text color={focusIndex === 0 ? 'cyan' : 'blue'} bold={focusIndex === 0}>
-                  {focusIndex === 0 ? '●' : '○'} Workspace Root:
-                </Text>
-              </Box>
-              <Box borderStyle="single" borderColor={focusIndex === 0 ? 'cyan' : 'gray'} paddingX={1}>
-                {focusIndex === 0 ? (
-                  <EnhancedTextInput
-                    defaultValue={workspace}
-                    onChange={setWorkspace}
-                    onSubmit={() => setFocusIndex(1)}
-                  />
-                ) : (
-                  <Text color="gray">{workspace}</Text>
-                )}
-              </Box>
-            </Box>
-
-            <Box flexDirection="column">
-              <Box gap={1}>
-                <Text color={focusIndex === 1 ? 'green' : 'gray'} bold={focusIndex === 1}>
-                  {focusIndex === 1 ? '●' : '○'} Mission Description:
-                </Text>
-              </Box>
-              <Box borderStyle="single" borderColor={focusIndex === 1 ? 'green' : 'gray'} paddingX={1}>
-                {focusIndex === 1 ? (
-                  <EnhancedTextInput
-                    placeholder="e.g. Add a dark mode toggle to the settings panel"
-                    onSubmit={handleSubmit}
-                  />
-                ) : (
-                  <Text color="gray" dimColor>Select this field to enter mission...</Text>
-                )}
-              </Box>
-            </Box>
-
-            <Box marginTop={1}>
-              <Text color="gray">Press </Text>
-              <Text color="cyan" bold>Tab</Text>
-              <Text color="gray"> to switch fields.</Text>
-            </Box>
+            <Text color="gray" italic>Workspace is ready. Use the Dashboard to begin a mission.</Text>
           </Box>
         )}
       </Box>
@@ -343,7 +371,7 @@ const App = () => {
               <Text color={view === 'dashboard' ? 'white' : 'blue'}>[Alt+D] Dash</Text>
               <Text color={view === 'mission' ? 'white' : 'blue'}>[Alt+M] Mission</Text>
               <Text color={view === 'trace' ? 'white' : 'blue'}>[Alt+T] Trace</Text>
-              <Text color={view === 'task' ? 'white' : 'blue'}>[Alt+⇧T] Task</Text>
+              <Text color={view === 'task' ? 'white' : 'blue'}>[Alt+Shift+T] Task</Text>
               <Text color={view === 'review' ? 'white' : 'blue'}>[Alt+R] Review</Text>
               <Text color="blue">[Alt+S] Settings</Text>
               <Text color={view === 'log' ? 'white' : 'blue'}>[Alt+L] Logs</Text>
@@ -381,5 +409,26 @@ const App = () => {
   );
 };
 
+const cleanup = () => {
+  process.stdout.write('\x1b[?2004l');
+  process.stdout.write('\x1b[>4;0m');
+};
+process.on('exit', cleanup);
+process.on('SIGINT', () => {
+  cleanup();
+  process.exit(130);
+});
+process.on('SIGTERM', () => {
+  cleanup();
+  process.exit(143);
+});
+
+// Reset the screen first, then enable terminal modes. Applying modes before RIS (`\x1Bc`)
+// is ineffective because RIS clears modifyOtherKeys and bracketed-paste state.
 process.stdout.write('\x1Bc');
+process.stdout.write('\x1b[?2004h');
+// Level 3 ensures Shift+Enter is reported as a modified CSI sequence, not plain \r.
+process.stdout.write('\x1b[>4;3m');
+initShiftKeyTracker();
 render(<App />);
+

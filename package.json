@@ -1,6 +1,6 @@
 {
   "name": "vibes-tui",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "High-performance terminal UI for planning and running agentic coding workflows",
   "type": "module",
   "bin": {
@@ -15,7 +15,7 @@
   "scripts": {
     "build": "tsc",
     "test:model-prompts": "npm run build && node --test tests/model-prompts.test.mjs",
-    "test:settings-layout": "npm run build && node --test tests/settings-layout.test.mjs tests/enhanced-input.test.mjs",
+    "test:settings-layout": "npm run build && node --test tests/settings-layout.test.mjs tests/enhanced-input.test.mjs tests/multiline-input.test.mjs tests/scheduler-deps.test.mjs",
     "test:review-fixes": "npm run build && node --test tests/config.test.mjs tests/triage-agent.test.mjs",
     "prepack": "npm run build",
     "start": "tsx --no-warnings src/index.tsx",

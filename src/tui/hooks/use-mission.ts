@@ -118,17 +118,25 @@ export const useMission = () => {
     setMission(plan);
     setIsExecuting(true);
     
-    // Auto-Git Snapshot Hack: Create a pre-mission snapshot for "Time Travel" / Undo
+    // Auto-Git Snapshot: init scratch workspaces and create a pre-mission snapshot for undo/review.
     try {
       const { spawnSync } = await import('child_process');
       const isGitCheck = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: plan.workspace_root, encoding: 'utf8' });
-      if (isGitCheck.stdout?.trim() === 'true') {
+      if (isGitCheck.stdout?.trim() !== 'true') {
+        log(`Initializing git repository in ${plan.workspace_root}`, 'INFO');
+        spawnSync('git', ['init'], { cwd: plan.workspace_root });
+        spawnSync('git', ['add', '-A'], { cwd: plan.workspace_root });
+        spawnSync(
+          'git',
+          ['commit', '-m', `vibes: initial workspace snapshot ${plan.id}`],
+          { cwd: plan.workspace_root },
+        );
+      } else {
         log(`Creating pre-mission git snapshot for ${plan.id}`, 'INFO');
-        // Use args array — never interpolate plan.id into a shell string.
         spawnSync(
           'git',
           ['commit', '-am', `vibes: pre-mission snapshot ${plan.id}`, '--allow-empty'],
-          { cwd: plan.workspace_root }
+          { cwd: plan.workspace_root },
         );
       }
     } catch (err) {

@@ -11,6 +11,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { describeDependencyDeadlock } from './scheduler-deps.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -93,7 +94,19 @@ export class Scheduler {
       log(`Scheduler loop: ${pendingCount} pending, ${nextTasks.length} ready, ${this.runningTasks.size} running`, 'DEBUG');
 
       if (nextTasks.length === 0 && this.runningTasks.size === 0) {
-        log('Scheduler detected deadlock or completion: no ready tasks and nothing running.', 'WARN');
+        const deadlockMessage = describeDependencyDeadlock(this.getAllTasks(), this.completedTasks);
+        if (deadlockMessage) {
+          log(deadlockMessage, 'ERROR');
+          this._mission.status = 'failed';
+          this.onEvent?.({
+            type: 'task_failed',
+            taskId: '',
+            title: 'Mission Scheduler',
+            error: deadlockMessage,
+          });
+        } else {
+          log('Scheduler detected deadlock or completion: no ready tasks and nothing running.', 'WARN');
+        }
         break;
       }
 
@@ -128,7 +141,8 @@ export class Scheduler {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    if (this._mission.status === 'executing' || this._mission.status === 'awaiting_intervention') {
+    const terminalStatus = this._mission.status as Mission['status'];
+    if (terminalStatus === 'executing' || terminalStatus === 'awaiting_intervention') {
       this._mission.status = this.failedTasks.size > 0 ? 'failed' : 'completed';
       
       // Memento Pattern: Persist mission summary into long-term memory

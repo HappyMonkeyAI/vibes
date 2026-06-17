@@ -116,7 +116,14 @@ ${diffContent}
   private getGitDiffForTask(workspaceRoot: string, files: string[]): string {
     try {
       if (!files || files.length === 0) return '';
-      // Escape file paths safely for shell argument execution
+      const insideGit = execSync('git rev-parse --is-inside-work-tree', {
+        cwd: workspaceRoot,
+        encoding: 'utf8',
+      }).trim();
+      if (insideGit !== 'true') {
+        log(`Skipping git diff for ${workspaceRoot}: workspace is not a git repository.`, 'DEBUG');
+        return '';
+      }
       const escapedFiles = files.map(f => `"${f.replace(/"/g, '\\"')}"`).join(' ');
       const diffOutput = execSync(`git diff HEAD -- ${escapedFiles}`, { cwd: workspaceRoot }).toString();
       return diffOutput;

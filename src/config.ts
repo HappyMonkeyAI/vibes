@@ -46,6 +46,7 @@ export const ConfigSchema = z.object({
   CODEX_SCRIPT_PATH: z.string().default(''),
   CODEX_PYTHON_PATH: z.string().default(''),
   ENABLE_CONTEXT_RECONSTRUCTION: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
+  VIBES_LAUNCH_DIR: z.string().default(''),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

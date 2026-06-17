@@ -78,9 +78,10 @@ export function EnhancedTextInput({ defaultValue = '', placeholder = '', maxWidt
       }
       return;
     }
-    if (input) {
-      setValue(prev => prev.slice(0, cursorOffset) + input + prev.slice(cursorOffset));
-      setCursorOffset(prev => prev + input.length);
+    if (input && !key.ctrl && !key.meta) {
+      const sanitizedInput = input.replace(/[\r\n]+/g, '');
+      setValue(prev => prev.slice(0, cursorOffset) + sanitizedInput + prev.slice(cursorOffset));
+      setCursorOffset(prev => prev + sanitizedInput.length);
     }
   });
 

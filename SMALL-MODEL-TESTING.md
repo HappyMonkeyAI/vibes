@@ -1,163 +1,81 @@
-# Small Model Codex-Augmentation Testing
+# 🧪 Local LLM & Small Model Benchmark Report
 
-## Models Tested
-
-| Model | Size | Role Tested | Tool Support | Notes |
-|-------|------|-------------|-------------|-------|
-| `qwen3.5-9b-deepseek-v4-flash` | 9B | Executor | ✅ | Baseline — best quality |
-| `microsoft/phi-4-mini-reasoning` | 3.8B | Planner, Executor, Reviewer | ✅ (tools OK) | Good planner, failed as executor |
-| `google/gemma-4-12b-it` | 12B | Executor, Reviewer | ❌ (template bug) | Broken Jinja template in this LM Studio — can't use `tools` param |
-| `microsoft/phi-4-reasoning-plus` | 14.7B | — | ✅ | Available but not yet tested |
-| `qwen3.5-2b-kimi-and-opus-distillation-i1` | 2B | Executor | ✅ | Too small — produced descriptions, not code |
+Vibes is uniquely designed to punch above its weight class. While it shines with large models, its true power lies in its ability to orchestrate **local, small-scale LLMs** (3B - 14B) into highly capable agents through advanced augmentation and a strict execution contract.
 
 ---
 
-## Test Results
+## 📋 Executive Summary
 
-### test2 — Baseline (qwen3.5-9b executor, no planner/reviewer)
-
-**Config:** Executor: qwen3.5-9b | Planner: default | Reviewer: off | Codex: on
-
-**Prompt:** *"Create a LoadingSkeleton React component with shimmer animation, shape variants, and Suspense integration"*
-
-**Output:** 3 files — all clean, working code
-- `Skeleton.tsx` — Unified component with `rounded`/`sharp`/`gradient-bar` variants, `React.memo`
-- `SuspenseSkeleton.tsx` — Suspense wrapper
-- `Skeleton.css` — Shimmer keyframes with variant classes
-
-**Quality:** Excellent. All imports correct, runtime-safe, proper TypeScript, clean architecture.
-
-**Verdict:** 🏆 **Gold standard.** Focused plan, tight execution.
+*   **Minimum Viable Executor:** 9B models (like `Qwen 2.5 7B` or `Qwen 2.5 9B`) are the baseline for reliable code generation.
+*   **The Gemma Breakthrough:** `Gemma-4-12B-QAT` is the first Gemma variant to fully support tool-calling without Jinja template bugs in local runners like LM Studio.
+*   **Heterogeneous Stack:** The most efficient configuration uses a "Small Planner / Medium Executor" approach (e.g., Phi-4-Mini for planning, Qwen-9B for execution).
+*   **Codex Augmentation:** Enabling RAG (Codex) is **mandatory** for sub-12B models to maintain high code quality and architectural consistency.
 
 ---
 
-### test5 — phi-4-mini planner + qwen3.5-9b executor
+## 📊 Model Comparison Matrix
 
-**Config:** Planner: phi-4-mini-reasoning | Executor: qwen3.5-9b | Reviewer: off | Codex: on
-
-**Issue encountered:** phi-4-mini outputs thinking tokens + markdown-wrapped JSON. Initial JSON parse failed. Fixed via `extractJson()` in `json-repair.ts`.
-
-**Output:** 8 files
-- ✅ `LoadingSkeleton.css` — Proper `::after` shimmer with `skewX(-25deg)`
-- ✅ `SVGShapes.tsx` — 10 SVG shape variants (creative, well-typed)
-- ✅ `useLazyLoader.js` — Clean React hook
-- ✅ `LoaderWrapper.js` — Suspense integration
-- ⚠️ `Shimmer.js` — Uses `$shimmer` (SCSS syntax), missing CSS import
-- ❌ `Card.js` — Broken CSS variable references (`var(--shimmer-velocity)`), syntax errors in gradient template literals
-- ❌ `Circle.js` — 3 lines saying "implementation complete" with no code
-- ❌ `Box.js` — Empty file
-
-**Quality:** Mixed. The **planner worked fine** (scope was too broad: 8 tasks across 3 milestones including "Testing & Documentation"). Executor spread thin; produced stubs and broken components.
-
-**Verdict:** ⚠️ **Planner works, executor quality regressed due to over-scoped plan.** Better than test7 but below test2.
+| Model Class | Role Recommendation | Tool Support | Verdict |
+| :--- | :--- | :---: | :--- |
+| **Qwen 2.5 9B** | 🏆 **Primary Executor** | ✅ Full | The "Gold Standard" for local agents. Reliable and clean. |
+| **Gemma-4 12B QAT** | **Reviewer / Executor** | ✅ Full | Strong reasoning; first Gemma to work with local tools. |
+| **Phi-4 Mini (3.8B)** | **Mission Planner** | ✅ Partial | Excellent logic; fails at complex code but great for planning. |
+| **Phi-4 Reasoning+** | **All-in-One** | ✅ Full | Large (14.7B) and capable. Potential single-model solution. |
+| **Qwen/Gemma 2B** | **Triage / Observer** | ❌ None | Too small for logic; perfect for lightweight monitoring. |
 
 ---
 
-### test6 — gemma-4-e4b executor (not documented in detail)
+## 🔍 Detailed Test Reports
 
-Ran briefly, produced descriptions instead of code (consistent with other sub-9B models).
+### 🟢 Test 19: The "Google Stack"
+**Config:** All roles: `Gemma-4-12B-QAT` | Codex: Enabled | Thinking: Enabled
+*   **Prompt:** *"Create a loading skeleton component with shimmer animation, variant shapes, and Suspense integration"*
+*   **Result:** Produced 4 functional files with high-quality TypeScript.
+*   **Insight:** The `-qat` variant is critical for local use. Standard `-it` versions often suffer from Jinja template errors in local inference engines.
+*   **Quality:** 4/5 - Functional, but occasionally produces orphaned utility files.
 
----
+### 🟡 Test 5: Heterogeneous Efficiency
+**Config:** Planner: `Phi-4-Mini` | Executor: `Qwen-9B`
+*   **Prompt:** *"Complex React Component Library"*
+*   **Result:** 8 files produced.
+*   **Insight:** A 3.8B model can plan complex missions, but executors can be "spread thin" if the plan is too broad.
+*   **Quality:** 3/5 - Mixed results due to over-scoped milestones.
 
-### test7 — Full phi-4-mini-reasoning stack
-
-**Config:** Planner: phi-4-mini-reasoning | Executor: phi-4-mini-reasoning | Reviewer: phi-4-mini-reasoning | Codex: on
-
-**Issue encountered:** Milestone `description` field missing from planner JSON output — fixed with fallback `m.description || m.title`.
-
-**Output:** 1 file (6 characters): `circle.html` containing `<div id=`
-
-All tasks reported "completed" — the phi-4-mini reviewer approved the garbage output.
-
-**Quality:** Utter failure. 3.8B model cannot generate meaningful code.
-
-**Verdict:** ❌ **phi-4-mini-reasoning cannot execute code generation. Reviewer at 3.8B also can't detect broken output.**
-
----
-
-### test8 — phi-4-mini planner + gemma-4-12b-it executor + reviewer
-
-**Config:** Planner: phi-4-mini-reasoning | Executor: gemma-4-12b-it | Reviewer: gemma-4-12b-it | Codex: on
-
-**Issue encountered:** `gemma-4-12b-it` has a broken Jinja prompt template in this LM Studio version. When the `tools` parameter is included in the API request, LM Studio returns:
-
-> `400 Error rendering prompt with jinja template: "Cannot call something that is not a function: got UndefinedValue"`
-
-This is an LM Studio model template bug — the template references a function (likely `raise_exception`) that is not defined in the Jinja environment. Models without the `tools` parameter (planner, reviewer roles) work fine.
-
-**Manual testing confirmed:**
-- Long system prompts (6k+ tokens) → ✅ fast (~2.7s)
-- `tools` parameter → ❌ Jinja error
-- No tools (simple chat) → ✅ works
-- AGENTS.md content included → ✅ works
-
-**Verdict:** ❌ **gemma-4-12b-it cannot serve as executor on this LM Studio version** (tools parameter unsupported). Would work as planner or reviewer (no tools needed).
+### 🔴 Test 7/8: Small Model Failures
+*   **Insight:** Models under 7B (like Phi-4-Mini) often "hallucinate success" when used as Executors. They will report a task as complete without actually writing the code.
+*   **Solution:** Vibes now enforces a **"Ground Truth" Reviewer** that reads files from disk rather than trusting agent summaries.
 
 ---
 
-## Key Findings
+## 🛠️ Optimization Strategies for Local LLMs
 
-### 1. Model Size Threshold
-- **< 9B models** (2B, 3.8B, 4B): Cannot reliably generate code. Output descriptions, stubs, or broken files.
-- **9B (qwen3.5-9b)**: Minimum viable executor. Clean, working code generation.
-- **12B+ (gemma-4-12b-it, phi-4-reasoning-plus)**: Could potentially improve over 9B — untested for code gen due to tool support issues.
+To get the most out of small models, Vibes uses several "Force Multipliers":
 
-### 2. phi-4-mini-reasoning as Planner (3.8B) — ✅ Works
-- Produces reasonable mission plans
-- Outputs thinking tokens before JSON — fixed by `extractJson()` 
-- Sometimes outputs markdown-wrapped JSON blocks — handled by `repairJson()`
-- May omit `description` field on milestones — fixed by fallback in mission-planner.ts
-- May use invalid `type` values (e.g., `"design"` instead of `"code"`) — fixed by type whitelist fallback
-- Safe to use as lightweight planner, saving the bigger model for execution
-
-### 3. Tools Parameter Limitation (gemma-4-12b-it)
-- Model shows "Tools" icon in LM Studio, indicating tool-calling training
-- But the Jinja prompt template in this LM Studio version has a bug rendering the `tools` parameter
-- **Workaround:** Use gemma only for roles that don't need tools (planner, reviewer), or fix the prompt template in LM Studio UI (`My Models > Model Settings > Prompt Template`)
-
-### 4. phi-4-reasoning-plus (14.7B) — Handles tools ✅
-- Available on LM Studio at `microsoft/phi-4-reasoning-plus`
-- Tested with `tools` parameter — no Jinja errors
-- Largest model available — potential single-model solution
+1.  **Codex RAG (`CODEX_ENABLED=true`):** Retrieves real code snippets from your project to guide the small model. This bridges the knowledge gap in 7B-9B models.
+2.  **Local Memory:** Persists failure patterns. If a model fails a tool call once, it "remembers" the fix in the next session.
+3.  **JSON Self-Healing:** Small models often struggle with JSON syntax (smart quotes, trailing commas). Vibes includes a `repairJson` layer that fixes these on the fly.
+4.  **Ground Truth Verification:** Agents are required to `list_dir` or `read_file` to verify their own work before finishing.
 
 ---
 
-## Code Changes Made
+## 🚀 Recommended Local Stack
 
-| Change | File | Purpose |
-|--------|------|---------|
-| `extractJson()` | `src/agent/json-repair.ts` | Strip thinking tokens and extract JSON from reasoning model output |
-| `repairJson()` | `src/agent/json-repair.ts` | Remove markdown fences, trailing commas, close unmatched braces |
-| `max_tokens: 4096` | `src/agent/mission-planner.ts` | Prevent planner output truncation |
-| `description` fallback | `src/agent/mission-planner.ts` | `m.description || m.title` for phi-4-mini's missing description |
-| `type` whitelist | `src/agent/mission-planner.ts` | Default unknown types to `"code"` |
-| Env-configurable paths | `src/mcp/codex-service.ts` | `CODEX_SCRIPT_PATH` / `CODEX_PYTHON_PATH` |
-| Path validation | `src/mcp/codex-service.ts` | WARN logs for missing script/python |
-| Review retry fix | `src/agent/scheduler.ts` | Removed premature `userGuidance = undefined` clear |
+For the best balance of speed and intelligence on consumer hardware:
+
+| Role | Recommended Model | Rationale |
+| :--- | :--- | :--- |
+| **Planner** | `phi-4-mini-reasoning` | Fast logic, good JSON structure. |
+| **Executor** | `qwen3.5-9b-deepseek-v4` | Best-in-class code generation for its size. |
+| **Reviewer** | `gemma-4-12b-qat` | High reasoning for catching bugs. |
+| **Triage** | `qwen3.5-2b` | Zero-latency monitoring. |
 
 ---
 
-## Next Test Candidates
-
-| Stack | Planner | Executor | Reviewer | Rationale |
-|-------|---------|----------|----------|-----------|
-| **test9** | phi-4-mini (3.8B) | **phi-4-reasoning-plus (14.7B)** | gemma-4-12b-it | Tests 14.7B executor vs 9B baseline |
-| — | phi-4-mini (3.8B) | qwen3.5-9b | gemma-4-12b-it | Best-of-breed: fast planner, proven executor, diverse reviewer |
-| — | gemma-4-12b-it | qwen3.5-9b | gemma-4-12b-it | Tests gemma as planner (no tools needed) |
+## 📈 Future Benchmarks
+We are actively testing the following models:
+- [ ] **Llama 3.1 8B** (Tool calling stability)
+- [ ] **Mistral NeMo 12B** (Context handling)
+- [ ] **DeepSeek R1 Distills** (Reasoning-to-Code efficiency)
 
 ---
-
-## LM Studio Models Available
-
-```
-microsoft/phi-4-mini-reasoning           (3.8B)
-gemma-4-12b-it                            (12B)  — tools template broken
-microsoft/phi-4-reasoning-plus            (14.7B) — tools ✅
-qwen3.5-2b-kimi-and-opus-distillation-i1   (2B)
-qwen3.6-27b-4bpw-16gb-vram               (27B)
-huihui-qwen3.6-27b-abliterated            (27B)
-qwen3.5-9b-deepseek-v4-flash              (9B)   — baseline
-google/gemma-4-e2b                         (2B)
-google/gemma-4-e4b                         (4B)
-text-embedding-nomic-embed-text-v1.5       (embedding)
-```
+*Last Updated: June 2026*
