@@ -47,7 +47,21 @@ const App = () => {
   } = useSettings();
   const closeSettings = React.useCallback(() => setView('dashboard'), []);
 
-  const [workspace, setWorkspace] = React.useState(process.env.VIBES_LAUNCH_DIR || process.cwd());
+  const resolveWorkspaceRoot = React.useCallback((launchDir?: string) => {
+    const configured = launchDir?.trim() || process.env.VIBES_LAUNCH_DIR?.trim() || '';
+    if (configured) {
+      return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured);
+    }
+    return process.cwd();
+  }, []);
+
+  const [workspace, setWorkspace] = React.useState(() =>
+    resolveWorkspaceRoot(settings.VIBES_LAUNCH_DIR),
+  );
+
+  React.useEffect(() => {
+    setWorkspace(resolveWorkspaceRoot(settings.VIBES_LAUNCH_DIR));
+  }, [resolveWorkspaceRoot, settings.VIBES_LAUNCH_DIR]);
   const [view, setView] = React.useState<'dashboard' | 'mission' | 'task' | 'trace' | 'settings' | 'history' | 'log' | 'review' | 'memory'>(
     hasPersistentConfig() ? 'dashboard' : 'settings'
   );
