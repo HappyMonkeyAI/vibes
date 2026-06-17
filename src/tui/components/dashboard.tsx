@@ -82,6 +82,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ mission, isPlanning, isExe
   };
 
   return (
+    <Box flexDirection="column">
     <Box flexDirection="row" borderStyle="single" borderColor={isFinished ? (failed > 0 ? 'yellow' : 'green') : 'cyan'}>
       {/* Left Pane: Primary Mission View */}
       <Box flexDirection="column" width="50%" padding={1} >
@@ -167,6 +168,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ mission, isPlanning, isExe
           </Box>
         </Box>
       </Box>
+
+    </Box>
+
+    {isFinished && (
+      <Box padding={1} borderStyle="single" borderColor={failed > 0 ? 'yellow' : 'green'} flexDirection="column">
+        <Text color={failed > 0 ? 'yellow' : 'green'} bold>
+          {failed > 0 ? '⚠ MISSION FINISHED WITH FAILURES' : '✅ MISSION COMPLETED SUCCESSFULLY'}
+        </Text>
+        <Box marginTop={1}>
+          <Text color="gray">Press </Text>
+          <Text color="cyan" bold>Alt+N</Text>
+          <Text color="gray"> for a new mission or </Text>
+          <Text color="cyan" bold>Alt+M</Text>
+          <Text color="gray"> to review details.</Text>
+        </Box>
+      </Box>
+    )}
     </Box>
   );
 };

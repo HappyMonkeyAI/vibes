@@ -15,6 +15,7 @@ import { ApprovalView } from './tui/components/approval-view.js';
 import { InterventionView } from './tui/components/intervention-view.js';
 import { LogStreamView } from './tui/components/log-stream-view.js';
 import { UpdateNotification } from './tui/components/update-notification.js';
+import { MissionCompleteBanner, getMissionOutcome } from './tui/components/mission-complete-banner.js';
 import { DiffView } from './tui/components/diff-view.js';
 import { MemoryView, MemoryPartition } from './tui/components/memory-view.js';
 import { initLogger } from './logger.js';
@@ -70,6 +71,7 @@ const App = () => {
   const lastInputTimeRef = React.useRef(0);
 
   const isIdle = !mission && !isPlanning && !pendingMission;
+  const missionOutcome = getMissionOutcome(mission, isExecuting, isPlanning);
 
   // Mock Memory Partitions for ADR 0005 scaffolding
   const [memoryPartitions, setMemoryPartitions] = React.useState<MemoryPartition[]>([
@@ -222,6 +224,10 @@ const App = () => {
         <Box justifyContent="center" borderStyle="single" borderColor="yellow" paddingX={1} marginTop={1}>
           <Text color="yellow" bold inverse> ⚡ YOLO MODE ENABLED — NO STEP LIMITS ⚡ </Text>
         </Box>
+      )}
+
+      {missionOutcome && !pendingMission && !pendingIntervention && view !== 'settings' && (
+        <MissionCompleteBanner outcome={missionOutcome} />
       )}
 
       {/* Update Notification */}
