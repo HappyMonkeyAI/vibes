@@ -162,12 +162,34 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
     }
 
     if (input && !key.ctrl && !key.meta) {
-      const currentLine = lines[cursorPosition.line];
-      const newLine = currentLine.slice(0, cursorPosition.col) + input + currentLine.slice(cursorPosition.col);
-      const newLines = [...lines];
-      newLines[cursorPosition.line] = newLine;
-      setValue(newLines.join('\n'));
-      setCursorPosition({ ...cursorPosition, col: cursorPosition.col + input.length });
+      const inputLines = input.split('\n');
+      if (inputLines.length === 1) {
+        const currentLine = lines[cursorPosition.line];
+        const newLine = currentLine.slice(0, cursorPosition.col) + input + currentLine.slice(cursorPosition.col);
+        const newLines = [...lines];
+        newLines[cursorPosition.line] = newLine;
+        setValue(newLines.join('\n'));
+        setCursorPosition({ ...cursorPosition, col: cursorPosition.col + input.length });
+      } else {
+        const linesBefore = lines.slice(0, cursorPosition.line);
+        const currentLine = lines[cursorPosition.line];
+        const lineStart = currentLine.slice(0, cursorPosition.col);
+        const lineEnd = currentLine.slice(cursorPosition.col);
+        const linesAfter = lines.slice(cursorPosition.line + 1);
+
+        const newMiddleLines = [
+          lineStart + inputLines[0],
+          ...inputLines.slice(1, -1),
+          inputLines[inputLines.length - 1] + lineEnd
+        ];
+
+        const allNewLines = [...linesBefore, ...newMiddleLines, ...linesAfter];
+        setValue(allNewLines.join('\n'));
+
+        const newCursorLine = cursorPosition.line + inputLines.length - 1;
+        const newCursorCol = inputLines[inputLines.length - 1].length;
+        setCursorPosition({ line: newCursorLine, col: newCursorCol });
+      }
     }
   });
 
