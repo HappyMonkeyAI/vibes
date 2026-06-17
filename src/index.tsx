@@ -6,7 +6,7 @@ import { EnhancedTextInput } from './tui/components/enhanced-text-input.js';
 import { useMission } from './tui/hooks/use-mission.js';
 import { useUpdateCheck } from './tui/hooks/use-update-check.js';
 import { useSettings } from './tui/hooks/use-settings.js';
-import { Dashboard } from './tui/components/dashboard.js';
+import { Workspace } from './tui/components/workspace.js';
 import { MissionView } from './tui/components/mission-view.js';
 import { TaskView } from './tui/components/task-view.js';
 import { TraceView } from './tui/components/trace-view.js';
@@ -63,6 +63,20 @@ const App = () => {
   const handleFlushPartition = (id: string) => {
     // In a real implementation, this would call memory-service.ts to wipe the file
     setMemoryPartitions(prev => prev.map(p => p.id === id ? { ...p, size: 0 } : p));
+  };
+
+  // Mock chat history for ADR 0006
+  const [chatHistory, setChatHistory] = React.useState<Array<{ role: 'user' | 'agent', text: string }>>([
+    { role: 'agent', text: 'Welcome to Vibes TUI 2.0. How can I assist you today?' }
+  ]);
+
+  const handleSubmitPrompt = (text: string) => {
+    if (!text.trim()) return;
+    setChatHistory(prev => [...prev, { role: 'user', text }]);
+    // In a real implementation, this would call startMission or continueMission
+    if (!mission && !pendingMission && !isExecuting) {
+      startMission(text, workspace);
+    }
   };
 
   useInput((input, key) => {
@@ -252,13 +266,13 @@ const App = () => {
         )}
 
         {!pendingMission && !pendingIntervention && view === 'dashboard' && (
-          <Dashboard
+          <Workspace
             mission={mission}
             isPlanning={isPlanning}
             isExecuting={isExecuting}
             isYoloMode={isYoloMode}
-            contextUsage={contextUsage}
-            triageState={triageState}
+            onSubmitPrompt={handleSubmitPrompt}
+            chatHistory={chatHistory}
           />
         )}
 
