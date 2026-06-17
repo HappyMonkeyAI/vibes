@@ -39,7 +39,7 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
     if (!isFocused) return;
 
     if (key.return) {
-      if (key.shift || key.meta) {
+      if (key.shift || key.meta || key.ctrl) {
         // Insert newline
         const linesBefore = lines.slice(0, cursorPosition.line);
         const currentLine = lines[cursorPosition.line];
@@ -222,7 +222,7 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
             renderedLine = line || ' '; // Ensure empty lines render their height
           }
 
-          return <Text key={lineIdx}>{renderedLine}</Text>;
+          return <Text key={lineIdx} wrap="wrap">{renderedLine}</Text>;
         })
       )}
     </Box>

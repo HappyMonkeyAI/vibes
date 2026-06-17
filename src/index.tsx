@@ -33,6 +33,7 @@ const App = () => {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const terminalHeight = stdout.rows || 24;
+  const terminalWidth = stdout.columns || 80;
   const {
     updateInfo, status: updateStatus, error: updateError,
     dismissed: updateDismissed, updateLog,
@@ -180,7 +181,7 @@ const App = () => {
   const contextKB = Math.round(settings.CONTEXT_WINDOW / 1024);
 
   return (
-    <Box flexDirection="column" padding={1} height={terminalHeight}>
+    <Box flexDirection="column" padding={1} height={terminalHeight} width={terminalWidth}>
       {/* Header */}
       <Box justifyContent="space-between" borderStyle="round" borderColor="blue" paddingX={1}>
         <Text bold color="cyan">VIBES TUI</Text>
