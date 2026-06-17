@@ -14,8 +14,18 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
   const [value, setValue] = useState(defaultValue);
   const [cursorPosition, setCursorPosition] = useState({ line: 0, col: defaultValue.length });
   const isPastingRef = useRef(false);
+  const pasteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastInputTimeRef = useRef(0);
   const firstRender = useRef(true);
+
+  // Clean up paste timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (pasteTimeoutRef.current) {
+        clearTimeout(pasteTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Derive lines for rendering and navigation
   const lines = value.split('\n');
@@ -44,12 +54,25 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
     const isFastInput = now - lastInputTimeRef.current < 25;
     lastInputTimeRef.current = now;
 
-    if (input === '\u001b[200~') {
+    if (input.length > 5 || input.includes('\n') || input.includes('\r') || input === '\u001b[200~') {
       isPastingRef.current = true;
+      if (pasteTimeoutRef.current) {
+        clearTimeout(pasteTimeoutRef.current);
+      }
+      pasteTimeoutRef.current = setTimeout(() => {
+        isPastingRef.current = false;
+      }, 200);
+    }
+
+    if (input === '\u001b[200~') {
       return;
     }
     if (input === '\u001b[201~') {
       isPastingRef.current = false;
+      if (pasteTimeoutRef.current) {
+        clearTimeout(pasteTimeoutRef.current);
+        pasteTimeoutRef.current = null;
+      }
       return;
     }
 
