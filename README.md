@@ -26,15 +26,16 @@ Built with **Ink 5** and **React 18**, Vibes connects to a remote Ollama instanc
 
 ---
 
-## 🧠 Model Flexibility
+## 🧠 Model Flexibility & Local Optimization
 
-While **Vibes** was built to leverage the specific reasoning and tool-calling strengths of **Gemma4**, its underlying architecture is model-agnostic. 
+While **Vibes** was built to leverage the specific reasoning and tool-calling strengths of **Gemma4**, its architecture is heavily optimized for **local, consumer-grade LLMs**. We believe you shouldn't need a cluster of H100s to run a capable agent.
 
-- **OpenAI Compatibility**: Vibes uses the OpenAI SDK to communicate with Ollama, making it compatible with a wide range of models.
-- **Thinking/Reasoning**: Supports models that provide a `reasoning` field in their response (like Gemma4 and DeepSeek R1).
-- **Tool Calling**: Works with any model that supports standard OpenAI tool call formatting.
+- **🏠 Local-First**: Optimized for running on Ollama, LM Studio, or vLLM.
+- **📉 Small Model Support**: Features like **Codex RAG**, **Local Memory**, and **JSON Self-Healing** allow models as small as **9B** (like Qwen 2.5) to perform complex multi-file coding tasks.
+- **🎭 Heterogeneous Roles**: Assign different models to different roles (Planner, Executor, Reviewer) to balance speed and intelligence.
+- **🛡️ The "Executor Contract"**: A strict verification layer that prevents small models from "hallucinating success" by forcing ground-truth checks against the filesystem.
 
-To switch models, simply update `OLLAMA_MODEL` and `OLLAMA_BASE_URL` in your `.env` file.
+👉 **View our [Local LLM & Small Model Benchmark Report](SMALL-MODEL-TESTING.md)** for recommended stacks and performance data.
 
 ---
 
