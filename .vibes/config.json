@@ -10,11 +10,12 @@
   "REVIEWER_MODEL": "qwen3.5-9b-deepseek-v4-flash",
   "THINKING_MODE": true,
   "MAX_STEPS": 5,
-  "MEMORY_USER_ID": "test18",
+  "MEMORY_USER_ID": "test26",
   "TRIAGE_ENABLED": true,
   "TRIAGE_MODEL": "qwen3.5-2b-kimi-and-opus-distillation-i1",
   "ENABLE_CONTEXT_RECONSTRUCTION": true,
   "OLLAMA_BASE_URL": "http://192.168.5.157:1234/v1",
   "LOCAL_MEMORY": true,
-  "ENABLE_NATIVE_TOOLS": true
+  "ENABLE_NATIVE_TOOLS": true,
+  "VIBES_LAUNCH_DIR": "/home/stephen/test26"
 }

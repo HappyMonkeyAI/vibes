@@ -1,6 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 import chalk from 'chalk';
+import {
+  BRACKETED_PASTE_END,
+  BRACKETED_PASTE_START,
+  BRACKETED_PASTE_FLUSH_TIMEOUT_MS,
+  PASTE_BURST_THRESHOLD_MS,
+  SHIFT_HELD_TIMEOUT_MS,
+  cursorFromValueEnd,
+  insertNewlineAtCursor,
+  insertTextAtCursor,
+  isModifiedNewlineSequence,
+  isPasteChunk,
+  isShiftModifierSequence,
+  shouldInsertNewline,
+} from './multiline-input-helpers.js';
+import { consumeShiftEnterIntent } from '../shift-key-tracker.js';
 
 interface Props {
   defaultValue?: string;
@@ -12,22 +27,102 @@ interface Props {
 
 export function MultilineTextInput({ defaultValue = '', placeholder = '', onChange, onSubmit, isFocused = true }: Props) {
   const [value, setValue] = useState(defaultValue);
-  const [cursorPosition, setCursorPosition] = useState({ line: 0, col: defaultValue.length });
-  const isPastingRef = useRef(false);
-  const pasteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastInputTimeRef = useRef(0);
+  const [cursorPosition, setCursorPosition] = useState(() => cursorFromValueEnd(defaultValue));
+  const valueRef = useRef(defaultValue);
+  const cursorRef = useRef(cursorFromValueEnd(defaultValue));
+  const bracketedPasteActiveRef = useRef(false);
+  const bracketedPasteBufferRef = useRef('');
+  const bracketedPasteCursorRef = useRef(cursorRef.current);
+  const bracketedPasteFlushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pasteSessionActiveRef = useRef(false);
+  const pasteSessionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const shiftHeldRef = useRef(false);
+  const shiftHeldTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const firstRender = useRef(true);
 
-  // Clean up paste timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (pasteTimeoutRef.current) {
-        clearTimeout(pasteTimeoutRef.current);
-      }
-    };
+  const syncEditorState = useCallback((nextValue: string, nextCursor: { line: number; col: number }) => {
+    valueRef.current = nextValue;
+    cursorRef.current = nextCursor;
+    setValue(nextValue);
+    setCursorPosition(nextCursor);
   }, []);
 
-  // Derive lines for rendering and navigation
+  const clearPasteSession = useCallback(() => {
+    if (pasteSessionTimeoutRef.current) {
+      clearTimeout(pasteSessionTimeoutRef.current);
+      pasteSessionTimeoutRef.current = null;
+    }
+    pasteSessionActiveRef.current = false;
+  }, []);
+
+  const markPasteSession = useCallback(() => {
+    pasteSessionActiveRef.current = true;
+    if (pasteSessionTimeoutRef.current) {
+      clearTimeout(pasteSessionTimeoutRef.current);
+    }
+    pasteSessionTimeoutRef.current = setTimeout(() => {
+      pasteSessionActiveRef.current = false;
+      pasteSessionTimeoutRef.current = null;
+    }, PASTE_BURST_THRESHOLD_MS);
+  }, []);
+
+  const clearBracketedPasteFlush = useCallback(() => {
+    if (bracketedPasteFlushTimeoutRef.current) {
+      clearTimeout(bracketedPasteFlushTimeoutRef.current);
+      bracketedPasteFlushTimeoutRef.current = null;
+    }
+  }, []);
+
+  const flushBracketedPaste = useCallback(() => {
+    const buffer = bracketedPasteBufferRef.current;
+    bracketedPasteBufferRef.current = '';
+    bracketedPasteActiveRef.current = false;
+    clearBracketedPasteFlush();
+    clearPasteSession();
+
+    if (!buffer) {
+      return;
+    }
+
+    const pasteCursor = bracketedPasteCursorRef.current;
+    const next = insertTextAtCursor(valueRef.current, buffer, pasteCursor);
+    syncEditorState(next.value, next.cursor);
+  }, [clearBracketedPasteFlush, clearPasteSession, syncEditorState]);
+
+  const scheduleBracketedPasteFlush = useCallback(() => {
+    clearBracketedPasteFlush();
+    bracketedPasteFlushTimeoutRef.current = setTimeout(() => {
+      bracketedPasteFlushTimeoutRef.current = null;
+      flushBracketedPaste();
+    }, BRACKETED_PASTE_FLUSH_TIMEOUT_MS);
+  }, [clearBracketedPasteFlush, flushBracketedPaste]);
+
+  const insertAtCursor = useCallback((text: string) => {
+    const next = insertTextAtCursor(valueRef.current, text, cursorRef.current);
+    syncEditorState(next.value, next.cursor);
+  }, [syncEditorState]);
+
+  const markShiftHeld = useCallback(() => {
+    shiftHeldRef.current = true;
+    if (shiftHeldTimeoutRef.current) {
+      clearTimeout(shiftHeldTimeoutRef.current);
+    }
+    shiftHeldTimeoutRef.current = setTimeout(() => {
+      shiftHeldRef.current = false;
+      shiftHeldTimeoutRef.current = null;
+    }, SHIFT_HELD_TIMEOUT_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearPasteSession();
+      clearBracketedPasteFlush();
+      if (shiftHeldTimeoutRef.current) {
+        clearTimeout(shiftHeldTimeoutRef.current);
+      }
+    };
+  }, [clearBracketedPasteFlush, clearPasteSession]);
+
   const lines = value.split('\n');
 
   useEffect(() => {
@@ -39,206 +134,218 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
   }, [value, onChange]);
 
   useEffect(() => {
+    const nextCursor = cursorFromValueEnd(defaultValue);
+    valueRef.current = defaultValue;
+    cursorRef.current = nextCursor;
     setValue(defaultValue);
-    const initialLines = defaultValue.split('\n');
-    setCursorPosition({ 
-      line: initialLines.length - 1, 
-      col: initialLines[initialLines.length - 1].length 
-    });
+    setCursorPosition(nextCursor);
   }, [defaultValue]);
 
   useInput((input, key) => {
     if (!isFocused) return;
 
-    const now = Date.now();
-    const isFastInput = now - lastInputTimeRef.current < 25;
-    lastInputTimeRef.current = now;
-
-    if (input.length > 5 || input.includes('\n') || input.includes('\r') || input === '\u001b[200~') {
-      isPastingRef.current = true;
-      if (pasteTimeoutRef.current) {
-        clearTimeout(pasteTimeoutRef.current);
-      }
-      pasteTimeoutRef.current = setTimeout(() => {
-        isPastingRef.current = false;
-      }, 200);
-    }
-
-    if (input === '\u001b[200~') {
-      return;
-    }
-    if (input === '\u001b[201~') {
-      isPastingRef.current = false;
-      if (pasteTimeoutRef.current) {
-        clearTimeout(pasteTimeoutRef.current);
-        pasteTimeoutRef.current = null;
-      }
+    if (input === BRACKETED_PASTE_START) {
+      bracketedPasteActiveRef.current = true;
+      bracketedPasteBufferRef.current = '';
+      bracketedPasteCursorRef.current = cursorRef.current;
+      markPasteSession();
+      scheduleBracketedPasteFlush();
       return;
     }
 
-    if (key.return) {
-      if (key.shift || key.meta || key.ctrl || isPastingRef.current || isFastInput) {
-        // Insert newline
-        const linesBefore = lines.slice(0, cursorPosition.line);
-        const currentLine = lines[cursorPosition.line];
-        const lineStart = currentLine.slice(0, cursorPosition.col);
-        const lineEnd = currentLine.slice(cursorPosition.col);
-        const linesAfter = lines.slice(cursorPosition.line + 1);
-        
-        setValue([...linesBefore, lineStart, lineEnd, ...linesAfter].join('\n'));
-        setCursorPosition({ line: cursorPosition.line + 1, col: 0 });
+    if (input === BRACKETED_PASTE_END) {
+      flushBracketedPaste();
+      return;
+    }
+
+    if (bracketedPasteActiveRef.current) {
+      if (key.return) {
+        bracketedPasteBufferRef.current += '\n';
+      } else if (input) {
+        bracketedPasteBufferRef.current += input;
+      }
+      markPasteSession();
+      scheduleBracketedPasteFlush();
+      return;
+    }
+
+    if (key.shift || isShiftModifierSequence(input)) {
+      markShiftHeld();
+      if (isShiftModifierSequence(input)) {
+        return;
+      }
+    }
+
+    if (isModifiedNewlineSequence(input)) {
+      const next = insertNewlineAtCursor(valueRef.current, cursorRef.current);
+      syncEditorState(next.value, next.cursor);
+      return;
+    }
+
+    const wantsNewline = shouldInsertNewline({
+      input,
+      key,
+      isPasteSessionActive: pasteSessionActiveRef.current,
+      shiftHeld: shiftHeldRef.current,
+      readlineShiftEnter: consumeShiftEnterIntent(key.return || input === '\n'),
+    });
+
+    if (key.return || input === '\n') {
+      if (wantsNewline) {
+        const next = insertNewlineAtCursor(valueRef.current, cursorRef.current);
+        syncEditorState(next.value, next.cursor);
       } else {
-        // Submit
-        onSubmit?.(value);
-        setValue('');
-        setCursorPosition({ line: 0, col: 0 });
+        clearPasteSession();
+        onSubmit?.(valueRef.current);
+        syncEditorState('', { line: 0, col: 0 });
       }
       return;
     }
 
     if (key.upArrow) {
-      if (cursorPosition.line > 0) {
-        const nextLine = cursorPosition.line - 1;
-        const nextCol = Math.min(cursorPosition.col, lines[nextLine].length);
-        setCursorPosition({ line: nextLine, col: nextCol });
+      if (cursorRef.current.line > 0) {
+        const nextLine = cursorRef.current.line - 1;
+        const nextCol = Math.min(cursorRef.current.col, lines[nextLine]?.length ?? 0);
+        const nextCursor = { line: nextLine, col: nextCol };
+        cursorRef.current = nextCursor;
+        setCursorPosition(nextCursor);
       }
+      clearPasteSession();
       return;
     }
 
     if (key.downArrow) {
-      if (cursorPosition.line < lines.length - 1) {
-        const nextLine = cursorPosition.line + 1;
-        const nextCol = Math.min(cursorPosition.col, lines[nextLine].length);
-        setCursorPosition({ line: nextLine, col: nextCol });
+      if (cursorRef.current.line < lines.length - 1) {
+        const nextLine = cursorRef.current.line + 1;
+        const nextCol = Math.min(cursorRef.current.col, lines[nextLine]?.length ?? 0);
+        const nextCursor = { line: nextLine, col: nextCol };
+        cursorRef.current = nextCursor;
+        setCursorPosition(nextCursor);
       }
+      clearPasteSession();
       return;
     }
 
     if (key.leftArrow) {
-      if (cursorPosition.col > 0) {
-        setCursorPosition({ ...cursorPosition, col: cursorPosition.col - 1 });
-      } else if (cursorPosition.line > 0) {
-        const prevLine = cursorPosition.line - 1;
-        setCursorPosition({ line: prevLine, col: lines[prevLine].length });
+      if (cursorRef.current.col > 0) {
+        const nextCursor = { ...cursorRef.current, col: cursorRef.current.col - 1 };
+        cursorRef.current = nextCursor;
+        setCursorPosition(nextCursor);
+      } else if (cursorRef.current.line > 0) {
+        const prevLine = cursorRef.current.line - 1;
+        const nextCursor = { line: prevLine, col: lines[prevLine]?.length ?? 0 };
+        cursorRef.current = nextCursor;
+        setCursorPosition(nextCursor);
       }
+      clearPasteSession();
       return;
     }
 
     if (key.rightArrow) {
-      if (cursorPosition.col < lines[cursorPosition.line].length) {
-        setCursorPosition({ ...cursorPosition, col: cursorPosition.col + 1 });
-      } else if (cursorPosition.line < lines.length - 1) {
-        setCursorPosition({ line: cursorPosition.line + 1, col: 0 });
+      const currentLine = lines[cursorRef.current.line] ?? '';
+      if (cursorRef.current.col < currentLine.length) {
+        const nextCursor = { ...cursorRef.current, col: cursorRef.current.col + 1 };
+        cursorRef.current = nextCursor;
+        setCursorPosition(nextCursor);
+      } else if (cursorRef.current.line < lines.length - 1) {
+        const nextCursor = { line: cursorRef.current.line + 1, col: 0 };
+        cursorRef.current = nextCursor;
+        setCursorPosition(nextCursor);
       }
+      clearPasteSession();
       return;
     }
 
     if (key.home) {
-      setCursorPosition({ ...cursorPosition, col: 0 });
+      const nextCursor = { ...cursorRef.current, col: 0 };
+      cursorRef.current = nextCursor;
+      setCursorPosition(nextCursor);
+      clearPasteSession();
       return;
     }
 
     if (key.end) {
-      setCursorPosition({ ...cursorPosition, col: lines[cursorPosition.line].length });
+      const currentLine = lines[cursorRef.current.line] ?? '';
+      const nextCursor = { ...cursorRef.current, col: currentLine.length };
+      cursorRef.current = nextCursor;
+      setCursorPosition(nextCursor);
+      clearPasteSession();
       return;
     }
 
     if (key.backspace) {
-      if (cursorPosition.col > 0) {
-        // Delete character on current line
-        const currentLine = lines[cursorPosition.line];
-        const newLine = currentLine.slice(0, cursorPosition.col - 1) + currentLine.slice(cursorPosition.col);
-        const newLines = [...lines];
-        newLines[cursorPosition.line] = newLine;
-        setValue(newLines.join('\n'));
-        setCursorPosition({ ...cursorPosition, col: cursorPosition.col - 1 });
-      } else if (cursorPosition.line > 0) {
-        // Merge with previous line
-        const prevLine = lines[cursorPosition.line - 1];
-        const currentLine = lines[cursorPosition.line];
+      const currentLines = valueRef.current.split('\n');
+      const cursor = cursorRef.current;
+
+      if (cursor.col > 0) {
+        const currentLine = currentLines[cursor.line] ?? '';
+        const newLine = currentLine.slice(0, cursor.col - 1) + currentLine.slice(cursor.col);
+        const newLines = [...currentLines];
+        newLines[cursor.line] = newLine;
+        const nextCursor = { ...cursor, col: cursor.col - 1 };
+        syncEditorState(newLines.join('\n'), nextCursor);
+      } else if (cursor.line > 0) {
+        const prevLine = currentLines[cursor.line - 1] ?? '';
+        const currentLine = currentLines[cursor.line] ?? '';
         const newCol = prevLine.length;
         const newLines = [
-          ...lines.slice(0, cursorPosition.line - 1),
+          ...currentLines.slice(0, cursor.line - 1),
           prevLine + currentLine,
-          ...lines.slice(cursorPosition.line + 1)
+          ...currentLines.slice(cursor.line + 1),
         ];
-        setValue(newLines.join('\n'));
-        setCursorPosition({ line: cursorPosition.line - 1, col: newCol });
+        syncEditorState(newLines.join('\n'), { line: cursor.line - 1, col: newCol });
       }
+      clearPasteSession();
       return;
     }
 
     if (key.delete) {
-      const currentLine = lines[cursorPosition.line];
-      const isAtEndOfText = cursorPosition.line === lines.length - 1 && cursorPosition.col >= currentLine.length;
-      
+      const currentLines = valueRef.current.split('\n');
+      const cursor = cursorRef.current;
+      const currentLine = currentLines[cursor.line] ?? '';
+      const isAtEndOfText = cursor.line === currentLines.length - 1 && cursor.col >= currentLine.length;
+
       if (isAtEndOfText) {
-        if (cursorPosition.col > 0) {
-          const newLine = currentLine.slice(0, cursorPosition.col - 1) + currentLine.slice(cursorPosition.col);
-          const newLines = [...lines];
-          newLines[cursorPosition.line] = newLine;
-          setValue(newLines.join('\n'));
-          setCursorPosition({ ...cursorPosition, col: cursorPosition.col - 1 });
-        } else if (cursorPosition.line > 0) {
-          const prevLine = lines[cursorPosition.line - 1];
+        if (cursor.col > 0) {
+          const newLine = currentLine.slice(0, cursor.col - 1) + currentLine.slice(cursor.col);
+          const newLines = [...currentLines];
+          newLines[cursor.line] = newLine;
+          syncEditorState(newLines.join('\n'), { ...cursor, col: cursor.col - 1 });
+        } else if (cursor.line > 0) {
+          const prevLine = currentLines[cursor.line - 1] ?? '';
           const newCol = prevLine.length;
           const newLines = [
-            ...lines.slice(0, cursorPosition.line - 1),
+            ...currentLines.slice(0, cursor.line - 1),
             prevLine + currentLine,
-            ...lines.slice(cursorPosition.line + 1)
+            ...currentLines.slice(cursor.line + 1),
           ];
-          setValue(newLines.join('\n'));
-          setCursorPosition({ line: cursorPosition.line - 1, col: newCol });
+          syncEditorState(newLines.join('\n'), { line: cursor.line - 1, col: newCol });
         }
-      } else {
-        if (cursorPosition.col < currentLine.length) {
-          const newLine = currentLine.slice(0, cursorPosition.col) + currentLine.slice(cursorPosition.col + 1);
-          const newLines = [...lines];
-          newLines[cursorPosition.line] = newLine;
-          setValue(newLines.join('\n'));
-        } else if (cursorPosition.line < lines.length - 1) {
-          const nextLine = lines[cursorPosition.line + 1];
-          const newLines = [
-            ...lines.slice(0, cursorPosition.line),
-            currentLine + nextLine,
-            ...lines.slice(cursorPosition.line + 2)
-          ];
-          setValue(newLines.join('\n'));
-        }
+      } else if (cursor.col < currentLine.length) {
+        const newLine = currentLine.slice(0, cursor.col) + currentLine.slice(cursor.col + 1);
+        const newLines = [...currentLines];
+        newLines[cursor.line] = newLine;
+        syncEditorState(newLines.join('\n'), cursor);
+      } else if (cursor.line < currentLines.length - 1) {
+        const nextLine = currentLines[cursor.line + 1] ?? '';
+        const newLines = [
+          ...currentLines.slice(0, cursor.line),
+          currentLine + nextLine,
+          ...currentLines.slice(cursor.line + 2),
+        ];
+        syncEditorState(newLines.join('\n'), cursor);
       }
+      clearPasteSession();
       return;
     }
 
     if (input && !key.ctrl && !key.meta) {
-      const sanitized = input.replace(/\r\n/g, '\n').replace(/\r/g, '');
-      const inputLines = sanitized.split('\n');
-      if (inputLines.length === 1) {
-        const currentLine = lines[cursorPosition.line];
-        const newLine = currentLine.slice(0, cursorPosition.col) + sanitized + currentLine.slice(cursorPosition.col);
-        const newLines = [...lines];
-        newLines[cursorPosition.line] = newLine;
-        setValue(newLines.join('\n'));
-        setCursorPosition({ ...cursorPosition, col: cursorPosition.col + sanitized.length });
+      if (isPasteChunk(input)) {
+        markPasteSession();
       } else {
-        const linesBefore = lines.slice(0, cursorPosition.line);
-        const currentLine = lines[cursorPosition.line];
-        const lineStart = currentLine.slice(0, cursorPosition.col);
-        const lineEnd = currentLine.slice(cursorPosition.col);
-        const linesAfter = lines.slice(cursorPosition.line + 1);
-
-        const newMiddleLines = [
-          lineStart + inputLines[0],
-          ...inputLines.slice(1, -1),
-          inputLines[inputLines.length - 1] + lineEnd
-        ];
-
-        const allNewLines = [...linesBefore, ...newMiddleLines, ...linesAfter];
-        setValue(allNewLines.join('\n'));
-
-        const newCursorLine = cursorPosition.line + inputLines.length - 1;
-        const newCursorCol = inputLines[inputLines.length - 1].length;
-        setCursorPosition({ line: newCursorLine, col: newCursorCol });
+        clearPasteSession();
       }
+      insertAtCursor(input);
     }
   });
 
@@ -249,7 +356,7 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
       ) : (
         lines.map((line, lineIdx) => {
           const isCursorLine = isFocused && lineIdx === cursorPosition.line;
-          
+
           let renderedLine = '';
           if (isCursorLine) {
             renderedLine += line.slice(0, cursorPosition.col);
@@ -257,7 +364,7 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
             renderedLine += chalk.inverse(cursorChar);
             renderedLine += line.slice(cursorPosition.col + 1);
           } else {
-            renderedLine = line || ' '; // Ensure empty lines render their height
+            renderedLine = line || ' ';
           }
 
           return <Text key={lineIdx} wrap="wrap">{renderedLine}</Text>;

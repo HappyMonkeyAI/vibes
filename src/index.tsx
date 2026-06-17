@@ -18,6 +18,7 @@ import { UpdateNotification } from './tui/components/update-notification.js';
 import { DiffView } from './tui/components/diff-view.js';
 import { MemoryView, MemoryPartition } from './tui/components/memory-view.js';
 import { initLogger } from './logger.js';
+import { initShiftKeyTracker } from './tui/shift-key-tracker.js';
 import { hasPersistentConfig } from './config.js';
 import path from 'path';
 
@@ -390,6 +391,7 @@ const App = () => {
 
 const cleanup = () => {
   process.stdout.write('\x1b[?2004l');
+  process.stdout.write('\x1b[>4;0m');
 };
 process.on('exit', cleanup);
 process.on('SIGINT', () => {
@@ -401,7 +403,12 @@ process.on('SIGTERM', () => {
   process.exit(143);
 });
 
-process.stdout.write('\x1b[?2004h');
+// Reset the screen first, then enable terminal modes. Applying modes before RIS (`\x1Bc`)
+// is ineffective because RIS clears modifyOtherKeys and bracketed-paste state.
 process.stdout.write('\x1Bc');
+process.stdout.write('\x1b[?2004h');
+// Level 3 ensures Shift+Enter is reported as a modified CSI sequence, not plain \r.
+process.stdout.write('\x1b[>4;3m');
+initShiftKeyTracker();
 render(<App />);
 
