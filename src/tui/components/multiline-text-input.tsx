@@ -39,7 +39,7 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
     if (!isFocused) return;
 
     if (key.return) {
-      if (key.shift) {
+      if (key.shift || key.meta) {
         // Insert newline
         const linesBefore = lines.slice(0, cursorPosition.line);
         const currentLine = lines[cursorPosition.line];
@@ -92,6 +92,16 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
       } else if (cursorPosition.line < lines.length - 1) {
         setCursorPosition({ line: cursorPosition.line + 1, col: 0 });
       }
+      return;
+    }
+
+    if (key.home) {
+      setCursorPosition({ ...cursorPosition, col: 0 });
+      return;
+    }
+
+    if (key.end) {
+      setCursorPosition({ ...cursorPosition, col: lines[cursorPosition.line].length });
       return;
     }
 
@@ -162,14 +172,15 @@ export function MultilineTextInput({ defaultValue = '', placeholder = '', onChan
     }
 
     if (input && !key.ctrl && !key.meta) {
-      const inputLines = input.split('\n');
+      const sanitized = input.replace(/\r\n/g, '\n').replace(/\r/g, '');
+      const inputLines = sanitized.split('\n');
       if (inputLines.length === 1) {
         const currentLine = lines[cursorPosition.line];
-        const newLine = currentLine.slice(0, cursorPosition.col) + input + currentLine.slice(cursorPosition.col);
+        const newLine = currentLine.slice(0, cursorPosition.col) + sanitized + currentLine.slice(cursorPosition.col);
         const newLines = [...lines];
         newLines[cursorPosition.line] = newLine;
         setValue(newLines.join('\n'));
-        setCursorPosition({ ...cursorPosition, col: cursorPosition.col + input.length });
+        setCursorPosition({ ...cursorPosition, col: cursorPosition.col + sanitized.length });
       } else {
         const linesBefore = lines.slice(0, cursorPosition.line);
         const currentLine = lines[cursorPosition.line];

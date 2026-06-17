@@ -61,7 +61,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         {/* Input Area */}
         <Box paddingTop={1} flexDirection="column">
           <MultilineTextInput
-            placeholder="Type your message... (Shift+Enter for newline, Enter to submit)"
+            placeholder="Type your message... (Alt+Enter or Shift+Enter for newline, Enter to submit)"
             onSubmit={onSubmitPrompt}
           />
         </Box>
