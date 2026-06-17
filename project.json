@@ -3,8 +3,24 @@
   "name": "Vibes",
   "slug": "vibes",
   "summary": "A high-performance terminal user interface (TUI) for planning and running autonomous AI agent workflows, built with Ink and React",
-  "version": "0.1.2",
-  "lastUpdated": "2026-06-09T00:00:00Z",
+  "version": "0.3.0",
+  "lastUpdated": "2026-06-17T00:00:00Z",
+  "changelog": [
+    {
+      "date": "2026-06-17",
+      "version": "0.3.0",
+      "summary": "Multiline mission input, configurable workspace root, scheduler deadlock hardening",
+      "changes": [
+        "Fixed multiline mission prompt: bracketed-paste support, multi-chunk paste retention, Alt+Enter for newline",
+        "Added VIBES_LAUNCH_DIR setting — missions run in configured workspace, not just process.cwd()",
+        "Scheduler deadlock detection via scheduler-deps.ts with actionable circular-dependency errors",
+        "Mission planner prompt enforces acyclic depends_on (components before styling tasks)",
+        "Auto git init on mission approve for non-git scratch workspaces",
+        "Reviewer skips git diff gracefully when workspace is not a git repository",
+        "Added tests: multiline-input.test.mjs, scheduler-deps.test.mjs"
+      ]
+    }
+  ],
   "repository": "https://github.com/SPhillips1337/vibes",
   "license": "MIT",
   "goals": [
@@ -18,8 +34,9 @@
   "primary_features": [
     "Hierarchical mission planning via LLM (goals → milestones → tasks)",
     "Autonomous agent loop with streaming responses, tool calls, and reasoning-first thinking",
-    "DAG-based task scheduler with concurrent execution (up to 4 tasks) and dependency resolution",
-    "Interactive TUI with Dashboard, Mission Tree, Live Task View, Settings, and Log Stream",
+    "DAG-based task scheduler with concurrent execution, dependency resolution, and deadlock detection",
+    "Interactive TUI with Dashboard, Mission Tree, Trace, Task, Review, Settings, and Log Stream views",
+    "Multiline mission prompt with bracketed-paste support and Alt+Enter newline (SSH/Termius safe)",
     "Built-in file system tools (read, write, edit, glob, grep, shell execution)",
     "MCP (Model Context Protocol) integration with environment variable expansion in config",
     "Structural codebase audit for pre-flight analysis (imports, dead code, prop checks)",
@@ -32,7 +49,9 @@
     "Event hooks system (before_thinking, after_tool_call, on_error) with shell commands",
     "Context compaction and token budget management for long-running sessions",
     "Update notification with inline changelog viewer",
+    "Configurable workspace root (VIBES_LAUNCH_DIR) independent of launch directory",
     "Workspace undo (Alt+Z) via git hard-reset after failed missions",
+    "Auto git init for scratch workspaces before first mission snapshot",
     "JSON repair utilities for LLM output sanitization"
   ],
   "tech_stack": {
@@ -55,6 +74,7 @@
         "files": [
           "src/agent/mission-planner.ts",
           "src/agent/scheduler.ts",
+          "src/agent/scheduler-deps.ts",
           "src/agent/task-executor.ts",
           "src/agent/reviewer.ts",
           "src/agent/triage-agent.ts",
@@ -69,6 +89,8 @@
         "implementation": "React functional components with Ink primitives",
         "files": [
           "src/tui/components/dashboard.tsx",
+          "src/tui/components/workspace.tsx",
+          "src/tui/components/multiline-text-input.tsx",
           "src/tui/components/mission-view.tsx",
           "src/tui/components/task-view.tsx",
           "src/tui/components/settings-view.tsx",
@@ -150,6 +172,9 @@
           { "name": "Log stream + trace views", "status": "completed" },
           { "name": "Intervention/approval prompt views", "status": "completed" },
           { "name": "Enhanced TextInput with controlled props", "status": "completed" },
+          { "name": "Multiline mission prompt (paste, Alt+Enter newline)", "status": "completed" },
+          { "name": "Configurable workspace root (VIBES_LAUNCH_DIR)", "status": "completed" },
+          { "name": "Scheduler deadlock detection and planner acyclic deps", "status": "completed" },
           { "name": "Panel focus cycling (Tab)", "status": "in_progress" }
         ]
       },
@@ -175,7 +200,8 @@
     { "id": "T3", "title": "Add keyboard shortcut hints in all view headers", "status": "pending", "priority": "medium" },
     { "id": "T4", "title": "Panel focus cycling polish (Tab between views)", "status": "in_progress", "priority": "medium" },
     { "id": "T5", "title": "Write comprehensive test suite for agent loop", "status": "pending", "priority": "medium" },
-    { "id": "T6", "title": "Update README with current keyboard shortcut table", "status": "pending", "priority": "low" },
+    { "id": "T6", "title": "Update README with current keyboard shortcut table", "status": "completed", "priority": "low" },
+    { "id": "T8", "title": "Keep wiki and project.json in sync with releases", "status": "completed", "priority": "medium" },
     { "id": "T7", "title": "CI/CD pipeline for npm publish", "status": "pending", "priority": "low" }
   ],
   "files_of_interest": [
@@ -222,7 +248,10 @@
     "Autonomous agent ReAct loop with streaming, tool calling, and structured outputs",
     "DAG-based scheduling with up to 4 concurrent tasks and dependency resolution",
     "Multi-pane terminal UI with keyboard navigation (Alt+keys)",
-    "Git auto-snapshot before missions, undo via hard-reset",
+    "Configurable workspace root via VIBES_LAUNCH_DIR (Settings panel)",
+    "Multiline mission prompts with bracketed paste and Alt+Enter newline",
+    "Scheduler deadlock detection with circular dependency diagnostics",
+    "Git auto-snapshot before missions (auto-init for non-git workspaces), undo via hard-reset",
     "MCP tool integration (GitHub, Perplexity, Neo4j, sequential-thinking)",
     "Structural codebase audit (imports, dead code, prop mismatches)",
     "Long-term memory with semantic/episodic/procedural taxonomy",
@@ -241,6 +270,8 @@
     "src/index.tsx": "TUI entry point and app shell",
     "src/vibes-cli.ts": "CLI entry point for the vibes command",
     "src/agent/scheduler.ts": "DAG mission scheduler orchestrating all task execution",
+    "src/agent/scheduler-deps.ts": "Dependency deadlock analysis for circular depends_on detection",
+    "src/tui/components/multiline-text-input.tsx": "Multiline mission prompt with paste and newline handling",
     "src/agent/task-executor.ts": "Core agent loop (system prompt → tool calls → response)",
     "src/agent/mission-planner.ts": "LLM-based plan decomposition into milestones and tasks",
     "src/tui/components/dashboard.tsx": "Mission progress dashboard",
@@ -298,7 +329,11 @@
       "Structural audit pre-flight checks",
       "Context compaction",
       "Intervention/approval views",
-      "JSON output repair"
+      "JSON output repair",
+      "Multiline mission prompt (bracketed paste, Alt+Enter)",
+      "Configurable workspace root (VIBES_LAUNCH_DIR)",
+      "Scheduler deadlock detection (scheduler-deps)",
+      "Git auto-init for scratch workspaces"
     ],
     "demo_ready": [
       "Full mission lifecycle with planner + scheduler + executor",
@@ -314,8 +349,8 @@
       "Fine-grained model routing per task type"
     ]
   },
-  "progress_percent": 70,
-  "progress_state": "core stable, TUI maturing",
+  "progress_percent": 74,
+  "progress_state": "core stable, TUI maturing, scheduler hardened",
   "next_version_goals": [
     "Session persistence and resume",
     "Adversarial audit",
