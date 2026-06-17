@@ -61,6 +61,7 @@ const FIELDS: FieldDefinition[] = [
   { label: 'Codex Script Path', key: 'CODEX_SCRIPT_PATH', type: 'text' },
   { label: 'Codex Python Path', key: 'CODEX_PYTHON_PATH', type: 'text' },
   { label: 'Trace Directory', key: 'TRACE_DIR', type: 'text' },
+  { label: 'Current Working Dir', key: 'VIBES_LAUNCH_DIR', type: 'text' },
 ];
 
 const SETTINGS_CHROME_ROWS = 15;
@@ -111,12 +112,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       saveCurrentDraft();
       setFocusIndex((prev) => (prev + 1) % FIELDS.length);
       setStatus('idle');
+      return;
     }
 
     if (pressedKey.shift && pressedKey.tab) {
       saveCurrentDraft();
       setFocusIndex((prev) => (prev - 1 + FIELDS.length) % FIELDS.length);
       setStatus('idle');
+      return;
+    }
+
+    if (pressedKey.downArrow) {
+      saveCurrentDraft();
+      setFocusIndex((prev) => Math.min(FIELDS.length - 1, prev + 1));
+      setStatus('idle');
+      return;
+    }
+
+    if (pressedKey.upArrow) {
+      saveCurrentDraft();
+      setFocusIndex((prev) => Math.max(0, prev - 1));
+      setStatus('idle');
+      return;
     }
 
     const currentField = FIELDS[focusIndex];

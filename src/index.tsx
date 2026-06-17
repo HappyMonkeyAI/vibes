@@ -327,50 +327,9 @@ const App = () => {
           </Box>
         )}
 
-        {isIdle && view !== 'settings' && (
+        {isIdle && view !== 'settings' && view !== 'dashboard' && (
           <Box flexDirection="column" marginTop={1}>
-            <Box marginBottom={1} flexDirection="column">
-              <Box gap={1}>
-                <Text color={focusIndex === 0 ? 'cyan' : 'blue'} bold={focusIndex === 0}>
-                  {focusIndex === 0 ? '●' : '○'} Workspace Root:
-                </Text>
-              </Box>
-              <Box borderStyle="single" borderColor={focusIndex === 0 ? 'cyan' : 'gray'} paddingX={1}>
-                {focusIndex === 0 ? (
-                  <EnhancedTextInput
-                    defaultValue={workspace}
-                    onChange={setWorkspace}
-                    onSubmit={() => setFocusIndex(1)}
-                  />
-                ) : (
-                  <Text color="gray">{workspace}</Text>
-                )}
-              </Box>
-            </Box>
-
-            <Box flexDirection="column">
-              <Box gap={1}>
-                <Text color={focusIndex === 1 ? 'green' : 'gray'} bold={focusIndex === 1}>
-                  {focusIndex === 1 ? '●' : '○'} Mission Description:
-                </Text>
-              </Box>
-              <Box borderStyle="single" borderColor={focusIndex === 1 ? 'green' : 'gray'} paddingX={1}>
-                {focusIndex === 1 ? (
-                  <EnhancedTextInput
-                    placeholder="e.g. Add a dark mode toggle to the settings panel"
-                    onSubmit={handleSubmit}
-                  />
-                ) : (
-                  <Text color="gray" dimColor>Select this field to enter mission...</Text>
-                )}
-              </Box>
-            </Box>
-
-            <Box marginTop={1}>
-              <Text color="gray">Press </Text>
-              <Text color="cyan" bold>Tab</Text>
-              <Text color="gray"> to switch fields.</Text>
-            </Box>
+            <Text color="gray" italic>Workspace is ready. Use the Dashboard to begin a mission.</Text>
           </Box>
         )}
       </Box>
