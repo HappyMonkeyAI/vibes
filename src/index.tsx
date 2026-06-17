@@ -16,6 +16,7 @@ import { InterventionView } from './tui/components/intervention-view.js';
 import { LogStreamView } from './tui/components/log-stream-view.js';
 import { UpdateNotification } from './tui/components/update-notification.js';
 import { DiffView } from './tui/components/diff-view.js';
+import { MemoryView, MemoryPartition } from './tui/components/memory-view.js';
 import { initLogger } from './logger.js';
 import { hasPersistentConfig } from './config.js';
 import path from 'path';
@@ -43,7 +44,7 @@ const App = () => {
   const closeSettings = React.useCallback(() => setView('dashboard'), []);
 
   const [workspace, setWorkspace] = React.useState(process.env.VIBES_LAUNCH_DIR || process.cwd());
-  const [view, setView] = React.useState<'dashboard' | 'mission' | 'task' | 'trace' | 'settings' | 'history' | 'log' | 'review'>(
+  const [view, setView] = React.useState<'dashboard' | 'mission' | 'task' | 'trace' | 'settings' | 'history' | 'log' | 'review' | 'memory'>(
     hasPersistentConfig() ? 'dashboard' : 'settings'
   );
   const [focusIndex, setFocusIndex] = React.useState(0);
@@ -51,8 +52,25 @@ const App = () => {
 
   const isIdle = !mission && !isPlanning && !pendingMission;
 
+  // Mock Memory Partitions for ADR 0005 scaffolding
+  const [memoryPartitions, setMemoryPartitions] = React.useState<MemoryPartition[]>([
+    { id: 'working', title: 'Working Memory', description: 'Active context for current tasks (checkpoint.md)', size: 45000 },
+    { id: 'episodic', title: 'Episodic Memory', description: 'Recent experiences and tool executions (progress.md)', size: 120000 },
+    { id: 'semantic', title: 'Semantic Memory', description: 'Workspace rules, constraints, and architecture guidelines (MEMORY.md)', size: 34000 },
+    { id: 'lessons', title: 'Evolution Lessons', description: 'Trace-driven prompt corrections (evolution_rules.md)', size: 8500 },
+  ]);
+
+  const handleFlushPartition = (id: string) => {
+    // In a real implementation, this would call memory-service.ts to wipe the file
+    setMemoryPartitions(prev => prev.map(p => p.id === id ? { ...p, size: 0 } : p));
+  };
+
   useInput((input, key) => {
     if (key.ctrl && input === 'q') exit();
+    if (key.meta && input === 'm') {
+      setView(prev => prev === 'memory' ? 'dashboard' : 'memory');
+      return;
+    }
     if (key.meta && input === 'c') {
       const newVal = !isCodexEnabled;
       setIsCodexEnabled(newVal);
@@ -222,6 +240,14 @@ const App = () => {
             settings={settings}
             onSave={saveSettings}
             onClose={closeSettings}
+          />
+        )}
+
+        {view === 'memory' && (
+          <MemoryView
+            partitions={memoryPartitions}
+            onClose={() => setView('dashboard')}
+            onFlushPartition={handleFlushPartition}
           />
         )}
 
