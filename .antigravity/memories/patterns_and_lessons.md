@@ -253,4 +253,16 @@ confidence: high
 - **Files:** `src/index.tsx`, `src/tui/components/workspace.tsx`, `src/tui/components/multiline-text-input.tsx`
 - **Commit:** `fix: resolve layout, horizontal task list, unicode shortcuts, and premature paste submission bugs`
 
+### 35. Robust JSON Repair for Truncated Responses
+- **Lesson:** Local reasoning models or models with small output limits can cut off mid-response due to token depletion during internal reasoning (<think>) blocks. A standard repair that only appends closing braces/brackets results in invalid JSON if truncation occurs inside string literals, key names, or after colons.
+- **Fix:** Enhance the JSON repair algorithm to:
+  1. Detect unclosed strings, sanitize trailing backslashes, and append a closing quote.
+  2. Detect and strip trailing commas.
+  3. Detect trailing colons and append `null` values.
+  4. Complete partial trailing keywords (`tr` -> `true`, `fa` -> `false`, `nu` -> `null`) or default them.
+  5. Close all remaining open braces/brackets using a LIFO stack.
+- **Files:** `src/agent/json-repair.ts`, `tests/json-repair.test.mjs`
+- **Commit:** `fix: repair truncated JSON string literals, keys, values, and partial keywords in JSON repair utility`
+
+
 
