@@ -1,0 +1,74 @@
+You are working in a new repository: [REPO NAME].
+Your job is to help establish a clean, maintainable project documentation structure before or alongside implementation.
+
+Primary goals:
+1. Create or refine a repo-root README.md using the provided README-TEMPLATE.md, if present.
+2. Create a repo-root CONTEXT.md that captures:
+   - stack and runtime assumptions
+   - non-negotiable rules
+   - workflow protocols
+   - resolved architecture decisions
+   - what not to do
+   - concise project-specific guidance for future agents and contributors
+3. Create or refine a repo-root HERMES.md or equivalent agent guide if the project uses one.
+4. Create a research folder for external references, comparisons, and notes:
+   - research/README.md
+   - research/LINKS.md
+   - research/templates/project-note.md
+   - one note file per useful external project or reference
+5. Keep documentation concise, explicit, and project-specific.
+6. Use the docs as the source of truth for future work.
+7. If important decisions are made, capture them in ADRs.
+
+Operating rules:
+- Work in small feature slices.
+- Do not assume one size fits all.
+- Use the right level of QA for the task; prefer end-of-build or regression validation over blocking every tiny step with heavy gates.
+- Keep implementation and documentation aligned.
+- If architecture decisions change, update the docs and ADRs in the same change.
+- Prefer minimal, reusable structures over bloated generic guidance.
+- Treat research as reference material, not the source of truth.
+
+Documentation priorities:
+- README.md: user-facing overview and getting started
+- CONTEXT.md: the concise project operating manual
+- HERMES.md: agent behavior and repo workflow rules
+- docs/adr/: durable architecture decisions
+- research/: external projects, links, and notes
+
+Suggested research structure:
+- research/README.md — explains what belongs here
+- research/LINKS.md — curated links for quick reference
+- research/templates/project-note.md — template for note files
+- research/github-projects/ — one file per repo/reference
+- research/notes/ — optional deeper notes or comparison writeups
+
+When you inspect external projects:
+- Record URL, license, stack, why it matters, and what to cherry-pick or avoid.
+- Do not copy blindly.
+- Capture only durable, useful observations.
+
+When you update docs:
+- Keep them concise.
+- Make them specific to this repo.
+- Avoid generic advice that will go stale or apply everywhere.
+- Prefer short sections with clear headings.
+
+If you need to choose between speed and clarity:
+- Choose speed for exploratory notes.
+- Choose clarity for repo docs.
+- Choose small slices over big rewrites.
+
+Before finishing:
+- Verify the created files exist and contain the intended content.
+- If you changed architecture or workflow, update CONTEXT.md and any relevant ADRs.
+- Summarize exactly what was created or changed and where.
+
+Current task:
+[DESCRIBE THE SPECIFIC DOC OR RESEARCH WORK YOU WANT DONE]
+
+Deliverable:
+- Working repo documentation structure
+- Clean, concise content
+- Any necessary ADR updates
+- A clear research folder for future references

@@ -25,7 +25,8 @@ export class GoalJudge {
             unmetCriteria.push(`Required file does not exist: ${file}`);
           } else {
             const stats = statSync(fullPath);
-            if (stats.size === 0) {
+            const isExpectedEmpty = /empty/i.test(task.title) || /empty/i.test(task.description);
+            if (stats.size === 0 && !isExpectedEmpty) {
               unmetCriteria.push(`Required file is empty: ${file}`);
             }
           }

@@ -55,7 +55,11 @@ function getRoleContract(role: ModelPromptRole): string {
     case 'planner':
       return `VIBES PLANNER CONTRACT:
 - Return exactly one raw JSON mission-plan object matching the schema in the main system prompt.
-- Do not use markdown fences, tool calls, commentary, or unified diffs.`;
+- Do not use markdown fences, tool calls, commentary, or unified diffs.
+- STRICT JSON: Do NOT include any comments (like '//' or '/*') inside the JSON.
+- NO PLACEHOLDERS: Do NOT output ellipses or placeholder dots (like '...') in the JSON keys or values.
+- NO PARROTING: Use the example schema only for structural guidance. Do not output literal template values like "Task Title" or "Prerequisite Task Title".
+- CONCISE REASONING: Keep your internal thinking/reasoning process extremely brief, direct, and under 150 words. Do not write a long essay.`;
     case 'reviewer':
       return `VIBES REVIEWER CONTRACT:
 - Return exactly one raw JSON review object matching the schema in the main system prompt.

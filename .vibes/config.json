@@ -1,21 +1,20 @@
 {
   "OLLAMA_MODEL": "qwen3.5-9b-deepseek-v4-flash",
-  "PLANNER_MODEL": "qwen3.5-9b-deepseek-v4-flash",
-  "CONTEXT_WINDOW": 30000,
+  "PLANNER_MODEL": "vibethinker-3b",
+  "CONTEXT_WINDOW": 32000,
   "ENABLE_REVIEWER": true,
   "MAX_CONCURRENT_TASKS": 4,
   "MEMORY_ENABLED": true,
   "CODEX_ENABLED": true,
   "CODEX_TOP_K": 3,
-  "REVIEWER_MODEL": "qwen3.5-9b-deepseek-v4-flash",
+  "REVIEWER_MODEL": "google/gemma-4-12b-qat",
   "THINKING_MODE": true,
   "MAX_STEPS": 5,
-  "MEMORY_USER_ID": "test26",
+  "MEMORY_USER_ID": "test29",
   "TRIAGE_ENABLED": true,
   "TRIAGE_MODEL": "qwen3.5-2b-kimi-and-opus-distillation-i1",
   "ENABLE_CONTEXT_RECONSTRUCTION": true,
   "OLLAMA_BASE_URL": "http://192.168.5.157:1234/v1",
   "LOCAL_MEMORY": true,
-  "ENABLE_NATIVE_TOOLS": true,
-  "VIBES_LAUNCH_DIR": "/home/stephen/test26"
+  "ENABLE_NATIVE_TOOLS": true
 }

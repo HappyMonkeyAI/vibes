@@ -3,7 +3,7 @@ import { Task, Mission } from './types.js';
 import { log } from '../logger.js';
 import { config } from '../config.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
-import { extractJsonContent } from './json-repair.js';
+import { extractJsonContent, repairJson } from './json-repair.js';
 import { execSync } from 'child_process';
 
 export interface ReviewIssue {
@@ -88,7 +88,15 @@ ${diffContent}
       if (!content) throw new Error('No response from reviewer model');
 
       content = extractJsonContent(content);
-      const result: ReviewResult = JSON.parse(content);
+      let result: ReviewResult;
+      try {
+        result = JSON.parse(content);
+      } catch (e) {
+        log('Reviewer JSON parse failed, attempting repair...', 'WARN');
+        const repaired = repairJson(content);
+        if (repaired === null) throw e;
+        result = JSON.parse(repaired);
+      }
       
       // Enforce schema sanity
       if (typeof result.approved !== 'boolean') {
@@ -125,6 +133,12 @@ ${diffContent}
         return '';
       }
       const escapedFiles = files.map(f => `"${f.replace(/"/g, '\\"')}"`).join(' ');
+      try {
+        // Run git add -N so that untracked/newly created files are visible to git diff HEAD
+        execSync(`git add -N -- ${escapedFiles}`, { cwd: workspaceRoot, stdio: 'ignore' });
+      } catch {
+        // Ignore if some files do not exist on disk yet
+      }
       const diffOutput = execSync(`git diff HEAD -- ${escapedFiles}`, { cwd: workspaceRoot }).toString();
       return diffOutput;
     } catch (err: any) {

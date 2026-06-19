@@ -35,6 +35,7 @@ export const useMission = () => {
 
   // Event buffer for throttled rendering — prevents re-render storming
   const eventBufferRef = useRef<ExecutionEvent[]>([]);
+  const allEventsRef = useRef<ExecutionEvent[]>([]);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushEvents = useCallback(() => {
     if (flushTimerRef.current) {
@@ -44,17 +45,25 @@ export const useMission = () => {
     if (eventBufferRef.current.length === 0) return;
     const buffered = eventBufferRef.current;
     eventBufferRef.current = [];
-    setEvents(prev => {
-      const newEvents = [...prev, ...buffered];
-      if (schedulerRef.current) {
-        const currentMission = { ...schedulerRef.current.mission };
-        setMission(currentMission);
-        sessionService.saveSession(currentMission, newEvents, { readFiles: [], modifiedFiles: [] }).then(() => {
-          sessionService.listSessions().then(setSessions);
-        });
+
+    setEvents([...allEventsRef.current]);
+
+    if (schedulerRef.current) {
+      const currentMission = { ...schedulerRef.current.mission };
+      setMission(currentMission);
+
+      // Only save session on significant events to minimize disk writes
+      const shouldSave = buffered.some(evt =>
+        evt.type === 'task_started' ||
+        evt.type === 'task_completed' ||
+        evt.type === 'intervention_required' ||
+        evt.type === 'task_failed'
+      );
+
+      if (shouldSave) {
+        sessionService.saveSession(currentMission, [...allEventsRef.current], { readFiles: [], modifiedFiles: [] });
       }
-      return newEvents;
-    });
+    }
   }, [sessionService]);
 
   // Cleanup flush timer on unmount to prevent post-unmount state updates / memory leaks
@@ -96,6 +105,7 @@ export const useMission = () => {
     setIsPlanning(true);
     setError(null);
     setEvents([]);
+    allEventsRef.current = [];
     setContextUsage(null);
     setPendingMission(null);
     setPendingIntervention(null);
@@ -117,6 +127,9 @@ export const useMission = () => {
     setPendingMission(null);
     setMission(plan);
     setIsExecuting(true);
+    allEventsRef.current = [];
+    setEvents([]);
+    await sessionService.saveSession(plan, [], { readFiles: [], modifiedFiles: [] });
     
     // Auto-Git Snapshot: init scratch workspaces and create a pre-mission snapshot for undo/review.
     try {
@@ -195,6 +208,11 @@ export const useMission = () => {
 
         // Buffer events and flush periodically to avoid re-render storming
         eventBufferRef.current.push(event);
+        allEventsRef.current.push(event);
+        const MAX_EVENTS = 1000;
+        if (allEventsRef.current.length > MAX_EVENTS) {
+          allEventsRef.current = allEventsRef.current.slice(allEventsRef.current.length - MAX_EVENTS);
+        }
         if (!flushTimerRef.current) {
           flushTimerRef.current = setTimeout(flushEvents, 100);
         }
@@ -221,12 +239,19 @@ export const useMission = () => {
 
       const completedMission = await scheduler.run();
       setMission({ ...completedMission });
+      await sessionService.saveSession(completedMission, [...allEventsRef.current], { readFiles: [], modifiedFiles: [] });
     } catch (err: any) {
       setError(formatModelProviderError(err));
+      if (schedulerRef.current) {
+        const currentMission = { ...schedulerRef.current.mission, status: 'failed' as const, error: err.message };
+        await sessionService.saveSession(currentMission, [...allEventsRef.current], { readFiles: [], modifiedFiles: [] });
+      }
     } finally {
       setIsExecuting(false);
       setPendingIntervention(null);
       schedulerRef.current = null;
+      const updated = await sessionService.listSessions();
+      setSessions(updated);
     }
   }, [pendingMission]);
 
@@ -253,6 +278,7 @@ export const useMission = () => {
     setIsExecuting(false);
     setError(null);
     setEvents([]);
+    allEventsRef.current = [];
     setContextUsage(null);
     setPendingIntervention(null);
     setActiveMaxSteps(config.MAX_STEPS);
@@ -262,6 +288,7 @@ export const useMission = () => {
   const loadSession = useCallback((session: SessionData) => {
     setMission(session.mission);
     setEvents(session.events);
+    allEventsRef.current = [...session.events];
     setError(null);
     setPendingMission(null);
     setPendingIntervention(null);
