@@ -254,15 +254,16 @@ confidence: high
 - **Commit:** `fix: resolve layout, horizontal task list, unicode shortcuts, and premature paste submission bugs`
 
 ### 35. Robust JSON Repair for Truncated Responses
-- **Lesson:** Local reasoning models or models with small output limits can cut off mid-response due to token depletion during internal reasoning (<think>) blocks. A standard repair that only appends closing braces/brackets results in invalid JSON if truncation occurs inside string literals, key names, or after colons.
-- **Fix:** Enhance the JSON repair algorithm to:
-  1. Detect unclosed strings, sanitize trailing backslashes, and append a closing quote.
-  2. Detect and strip trailing commas.
-  3. Detect trailing colons and append `null` values.
-  4. Complete partial trailing keywords (`tr` -> `true`, `fa` -> `false`, `nu` -> `null`) or default them.
-  5. Close all remaining open braces/brackets using a LIFO stack.
-- **Files:** `src/agent/json-repair.ts`, `tests/json-repair.test.mjs`
-- **Commit:** `fix: repair truncated JSON string literals, keys, values, and partial keywords in JSON repair utility`
+- **Lesson:** Local reasoning models or models with small output limits can cut off mid-response due to token depletion during internal reasoning (`<think>`) blocks. 
+  1. If a `<think>` tag remains unclosed at cutoff, finding a `{` anywhere in the text extracts example structures from the model's monologue instead of the actual JSON output, contaminating retry requests. We must discard the entire unclosed `<think>` block to allow a clean retry.
+  2. A standard repair that only appends closing braces/brackets results in invalid JSON if truncation occurs inside string literals, key names, or after colons.
+  3. LLM observer models (like reviewers and triage agents) are also susceptible to JSON truncation/errors and should use the same repair fallback before parsing.
+- **Fix:** 
+  1. Strip unclosed `<think>` blocks completely at extraction time.
+  2. Enhance the JSON repair algorithm to close unclosed strings (with backslash-escape handling), strip trailing commas, handle trailing colons (by appending `null`), complete partial keywords, and LIFO-close remaining open braces/brackets.
+  3. Integrate `repairJson` fallback in `reviewer.ts` and `triage-agent.ts` JSON-parsing boundaries.
+- **Files:** `src/agent/json-repair.ts`, `src/agent/reviewer.ts`, `src/agent/triage-agent.ts`, `tests/json-repair.test.mjs`
+- **Commit:** `fix: ignore unclosed think block content and apply repairJson fallback in triage-agent and reviewer`
 
 
 
