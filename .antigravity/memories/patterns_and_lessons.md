@@ -115,11 +115,13 @@ confidence: high
 - **Root Cause A — Unbounded `messages[]`:** `compressMessages` only triggers when the token budget is exceeded. When a small model produces short outputs, the token count may stay under budget while the raw JS object count grows into hundreds of entries holding gigabytes of string data.
 - **Root Cause B — O(n²) thrash detector:** `shouldStopAfterTurn` rebuilt the full `callHistory[]` from the entire `messages` array on every step (O(n) scan × O(n) filter = O(n²) per step). At step 500 this is scanning 1,000+ messages per turn.
 - **Root Cause C — Repeated tokenization of static content:** `estimateTokens()` called `gpt-tokenizer`'s `encode()` on every message including the static system prompt every step, creating fresh `Uint32Array` buffers each time.
+- **Root Cause D — Helper function allocation inside step loop:** The `formatToolResult` helper function was defined inside the step loop. Each iteration allocated a fresh function closure object in the heap. In long agent executions (high step count/turns), this caused massive GC overhead and triggered a JS heap allocation failure / OOM crash.
 - **Fix A:** Add `MSG_HARD_CAP = 150` in `task-executor.ts` before the `transformContext` check. Call `compressMessages(messages, true)` (force flag) to always compress when message count exceeds the cap, regardless of token budget. (`context-manager.ts` accepts new `force = false` optional param.)
 - **Fix B:** Replace the per-step rebuild in `createDefaultHooks` with a `Map<string, number>` (`_thrashCallCounts`) maintained in the closure — incremented each turn, bounded at 500 entries with insertion-order eviction. O(1) per step.
 - **Fix C:** Add a module-level `TOKEN_COUNT_CACHE = new Map<string, number>()` (max 512 entries, LRU eviction) in `context-manager.ts`. `estimateTokens()` checks the cache first; static strings like the system prompt are encoded only once per session.
+- **Fix D:** Move helper functions (like `formatToolResult`) out of the dynamic step loop and declare them as class methods or external functions.
 - **Files:** `src/agent/task-executor.ts`, `src/agent/context-manager.ts`
-- **Commit:** `ag/fix-tui-breaks` — `fix: prevent JS heap OOM in agent harness (3 targeted fixes)`
+- **Commit:** `fix: resolve memory leak by moving formatToolResult helper out of the agent turn loop`
 
 ### 15. Settings TUI Infinite Re-render Loop
 - **Lesson:** In Ink TUIs, rendering nested child views (like SettingsView) with inline event handlers or state updates inside `useEffect` can trigger a cascading infinite re-render loop ("Maximum update depth exceeded").
