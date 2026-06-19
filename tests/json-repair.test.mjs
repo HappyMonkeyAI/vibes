@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { repairJson } from '../dist/agent/json-repair.js';
+import { repairJson, extractJsonContent } from '../dist/agent/json-repair.js';
+
+test('extractJsonContent strips closed think blocks', () => {
+  const result = extractJsonContent('<think>some thinking</think>{"title": "Loading"}');
+  assert.equal(result, '{"title": "Loading"}');
+});
+
+test('extractJsonContent strips unclosed think blocks and returns empty', () => {
+  const result = extractJsonContent('<think>some thinking\n{\n  "title": "Example Structure"\n}');
+  assert.equal(result, '');
+});
 
 test('repairJson handles closed strings and structures', () => {
   const result = repairJson('{"title": "Loading"}');

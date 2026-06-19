@@ -17,17 +17,10 @@ export function extractJsonContent(text: string): string {
   if (/<\/think>/i.test(trimmed)) {
     trimmed = trimmed.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   } else if (/<think>/i.test(trimmed)) {
-    // Case 2: unclosed <think> — find the first '{' at the start of a line
-    // (i.e. the JSON root object) and discard everything before it.
-    const lineStartJson = trimmed.match(/^\{/m);
-    if (lineStartJson && lineStartJson.index !== undefined) {
-      trimmed = trimmed.slice(lineStartJson.index).trim();
-    } else {
-      // Fallback: strip the whole <think> tag and everything until the first '{'.
-      // Guard against very large inputs before the greedy [\.\s\S]* match.
-      if (trimmed.length > 200_000) trimmed = trimmed.slice(0, 200_000);
-      trimmed = trimmed.replace(/<think>\s*[\s\S]*/, '').trim();
-    }
+    // Case 2: unclosed <think> — since it is unclosed, the model cut off during reasoning
+    // and did not produce the actual JSON output. Strip the entire <think> block to avoid
+    // extracting placeholder JSON examples from within the thinking monologue.
+    trimmed = trimmed.replace(/<think>[\s\S]*/i, '').trim();
   }
 
   // Strip markdown code fences if present
@@ -36,7 +29,7 @@ export function extractJsonContent(text: string): string {
     trimmed = fenceMatch[1].trim();
   }
 
-  return trimmed || text.trim();
+  return trimmed;
 }
 
 /**
