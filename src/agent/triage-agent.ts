@@ -1,7 +1,7 @@
 import { config } from '../config.js';
 import { log } from '../logger.js';
 import { getOllamaClient, getModel } from '../ollama-client.js';
-import { extractJsonContent } from './json-repair.js';
+import { extractJsonContent, repairJson } from './json-repair.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
 import type {
   AgentLoopHooks,
@@ -350,7 +350,14 @@ YOU MUST:
       });
       const call = response.choices[0]?.message?.tool_calls?.[0];
       if (call?.function?.arguments) {
-        const parsed = JSON.parse(call.function.arguments);
+        let parsed;
+        try {
+          parsed = JSON.parse(call.function.arguments);
+        } catch (e) {
+          const repaired = repairJson(call.function.arguments);
+          if (repaired === null) throw e;
+          parsed = JSON.parse(repaired);
+        }
         return mapRawToAction(parsed);
       }
     } catch {
@@ -370,7 +377,14 @@ YOU MUST:
       const text = msg?.content || msg?.reasoning_content || '';
       const extracted = extractJsonContent(text);
       if (extracted) {
-        const parsed = JSON.parse(extracted);
+        let parsed;
+        try {
+          parsed = JSON.parse(extracted);
+        } catch (e) {
+          const repaired = repairJson(extracted);
+          if (repaired === null) throw e;
+          parsed = JSON.parse(repaired);
+        }
         return mapRawToAction(parsed);
       }
     } catch {

@@ -23,12 +23,15 @@ function makeTask(overrides = {}) {
 }
 
 test('approves a well-formed completed task', async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'goal-judge-test-'));
+  writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({ name: 'test' }));
+
   const judge = new GoalJudge();
   const task = makeTask({
     files: ['package.json'],
     acceptance_criteria: ['Package file exists'],
   });
-  const result = await judge.evaluate(task);
+  const result = await judge.evaluate(task, tmpDir);
 
   assert.equal(result.approved, true);
   assert.deepEqual(result.unmetCriteria, []);
@@ -133,4 +136,21 @@ test('rejects when task status is not done', async () => {
 test('createDefaultGoalJudge returns a GoalJudge instance', () => {
   const judge = createDefaultGoalJudge();
   assert.ok(judge instanceof GoalJudge);
+});
+
+test('approves when declared file is empty but task title or description contains "(empty)"', async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'goal-judge-test-'));
+  const emptyFile = 'empty.txt';
+  writeFileSync(join(tmpDir, emptyFile), '');
+
+  const judge = new GoalJudge();
+  const task = makeTask({
+    files: [emptyFile],
+    title: 'Create empty file',
+  });
+
+  const result = await judge.evaluate(task, tmpDir);
+
+  assert.equal(result.approved, true);
+  assert.deepEqual(result.unmetCriteria, []);
 });

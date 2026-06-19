@@ -70,9 +70,12 @@ const envConfig = ConfigSchema.safeParse(process.env);
 const persistentConfig = loadPersistentConfig();
 
 // Merge: Env (defaults/overrides) <- Persistent (user saved)
+// Note: We always initialize VIBES_LAUNCH_DIR to the actual launch directory
+// (env override or process.cwd()) rather than remembering it from the persistent config.
 const merged = {
   ...envConfig.success ? envConfig.data : {},
   ...persistentConfig,
+  VIBES_LAUNCH_DIR: process.env.VIBES_LAUNCH_DIR || process.cwd(),
 };
 
 const finalParsed = ConfigSchema.safeParse(merged);
@@ -99,7 +102,11 @@ export function updateConfig(newConfig: Partial<Config>) {
     }
     const current = loadPersistentConfig();
     const updated = { ...current, ...newConfig };
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(updated, null, 2));
+    
+    // Do not persist VIBES_LAUNCH_DIR to disk to avoid stale paths & git noise
+    const toPersist = { ...updated };
+    delete toPersist.VIBES_LAUNCH_DIR;
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(toPersist, null, 2));
     
     // Also update the in-memory object for the current session
     Object.assign(config, updated);

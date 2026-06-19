@@ -241,6 +241,12 @@ export class TaskExecutor {
     }
   }
 
+  private formatToolResult(result: ToolResult): string {
+    if (!result.success) return `Error: ${result.error}`;
+    if (typeof result.data === 'string') return result.data;
+    return JSON.stringify(result);
+  }
+
   async executeTask(
     task: Task,
     missionContext: string,
@@ -410,19 +416,7 @@ ${memoriesSection}`;
       }
 
       try {
-        // Fix 1: Hard cap by message count — force compaction regardless of token budget.
-        // Prevents unbounded JS heap growth when many steps with small outputs accumulate.
-        // MSG_HARD_CAP of 150 retains head (2) + summary + ample tail while bounding the array.
-        /** Format a tool result for the LLM message stream.
- *  String data → plain text (preserves actual newlines).
- *  Structured data → JSON (fallback for arrays/objects). */
-function formatToolResult(result: ToolResult): string {
-  if (!result.success) return `Error: ${result.error}`;
-  if (typeof result.data === 'string') return result.data;
-  return JSON.stringify(result);
-}
-
-const MSG_HARD_CAP = 150;
+        const MSG_HARD_CAP = 150;
         if (messages.length > MSG_HARD_CAP) {
           log(`Message hard-cap hit (${messages.length} msgs): forcing compaction`, 'WARN');
           messages = compressMessages(messages, true);
@@ -747,7 +741,7 @@ const MSG_HARD_CAP = 150;
                 const r = result[i];
                 onEvent?.({ type: 'tool_result', tool: entry.toolCall.function.name, result: r });
                 logObject(`Tool Result [${entry.toolCall.function.name}] (parallel, ${elapsedMs} ms total)`, r);
-                const resultStr = formatToolResult(r);
+                const resultStr = this.formatToolResult(r);
                 const truncatedResult = truncateToolResult(resultStr, entry.toolCall.function.name);
                 messages.push({
                   role: 'tool',
@@ -762,7 +756,7 @@ const MSG_HARD_CAP = 150;
                 turnResults.push(res);
                 onEvent?.({ type: 'tool_result', tool: entry.toolCall.function.name, result: res });
                 logObject(`Tool Result [${entry.toolCall.function.name}]`, res);
-                const resultStr = formatToolResult(res);
+                const resultStr = this.formatToolResult(res);
                 const truncatedResult = truncateToolResult(resultStr, entry.toolCall.function.name);
                 messages.push({
                   role: 'tool',
