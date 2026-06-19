@@ -16,7 +16,7 @@
     "build": "tsc",
     "test:model-prompts": "npm run build && node --test tests/model-prompts.test.mjs",
     "test:settings-layout": "npm run build && node --test tests/settings-layout.test.mjs tests/enhanced-input.test.mjs tests/multiline-input.test.mjs tests/scheduler-deps.test.mjs",
-    "test:review-fixes": "npm run build && node --test tests/config.test.mjs tests/triage-agent.test.mjs",
+    "test:review-fixes": "npm run build && node --test tests/config.test.mjs tests/triage-agent.test.mjs tests/json-repair.test.mjs",
     "prepack": "npm run build",
     "start": "tsx --no-warnings src/index.tsx",
     "dev": "tsx watch --no-warnings --exclude .vibes --exclude dist --clear-screen=false src/index.tsx",

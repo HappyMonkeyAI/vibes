@@ -77,78 +77,163 @@ export function repairJson(json: string): string | null {
   const extracted = extractJson(json);
   if (extracted === null) return null;
 
-  let repaired = extracted;
+  let repaired = extracted.trim();
 
-  // Remove any markdown code blocks
-  if (repaired.includes('```')) {
-    const matches = repaired.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (matches && matches[1]) {
-      repaired = matches[1].trim();
-    }
-  }
-
-  // Remove trailing commas only when not inside strings
-  let result = '';
+  // Step A: Close any unclosed string
   let inString = false;
   let escaped = false;
-
   for (let i = 0; i < repaired.length; i++) {
     const char = repaired[i];
-    const nextChar = i + 1 < repaired.length ? repaired[i + 1] : '';
-
-    // Handle string state
-    if (!escaped && char === '"') {
-      inString = !inString;
-      result += char;
-      continue;
-    }
-
     if (inString) {
-      escaped = !escaped && char === '\\';
-      result += char;
-      continue;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+    } else {
+      if (char === '"') {
+        inString = true;
+        escaped = false;
+      }
     }
-
-    escaped = false;
-
-    // Skip comma if it's a trailing comma before } or ]
-    if (char === ',' && (nextChar === '}' || nextChar === ']')) {
-      continue;
-    }
-
-    result += char;
   }
 
-  repaired = result;
+  if (inString) {
+    // Truncated inside string.
+    // Count trailing backslashes to check if the last backslash escapes our closing quote
+    let backslashCount = 0;
+    for (let i = repaired.length - 1; i >= 0; i--) {
+      if (repaired[i] === '\\') {
+        backslashCount++;
+      } else {
+        break;
+      }
+    }
+    if (backslashCount % 2 !== 0) {
+      repaired = repaired.slice(0, -1);
+    }
+    repaired += '"';
+  }
 
-  // Count braces to find missing closures
+  // Step B: Trim trailing whitespace
+  repaired = repaired.trim();
+
+  // Step C: Handle trailing colon or comma
+  while (repaired.endsWith(':') || repaired.endsWith(',')) {
+    if (repaired.endsWith(':')) {
+      repaired += ' null';
+      break;
+    }
+    if (repaired.endsWith(',')) {
+      repaired = repaired.slice(0, -1).trim();
+    }
+  }
+
+  // Step D: Handle partial keywords or numbers
+  const lastWordMatch = repaired.match(/[a-zA-Z0-9_\.+\-]+$/);
+  if (lastWordMatch) {
+    const word = lastWordMatch[0];
+    const isTrue = word === 'true';
+    const isFalse = word === 'false';
+    const isNull = word === 'null';
+    const isNumber = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(word);
+
+    if (!isTrue && !isFalse && !isNull && !isNumber) {
+      let replacement = 'null';
+      if (word.startsWith('t') && 'true'.startsWith(word)) {
+        replacement = 'true';
+      } else if (word.startsWith('f') && 'false'.startsWith(word)) {
+        replacement = 'false';
+      } else if (word.startsWith('n') && 'null'.startsWith(word)) {
+        replacement = 'null';
+      }
+      repaired = repaired.slice(0, -word.length) + replacement;
+    }
+  }
+
+  // Step E: Handle key name ending (if it ends with a string, check if it's a key and needs a colon + value)
+  if (repaired.endsWith('"')) {
+    let lastStringStart = -1;
+    let inStr = false;
+    let esc = false;
+    for (let i = 0; i < repaired.length; i++) {
+      const char = repaired[i];
+      if (inStr) {
+        if (esc) {
+          esc = false;
+        } else if (char === '\\') {
+          esc = true;
+        } else if (char === '"') {
+          inStr = false;
+        }
+      } else {
+        if (char === '"') {
+          inStr = true;
+          esc = false;
+          lastStringStart = i;
+        }
+      }
+    }
+
+    if (lastStringStart !== -1) {
+      let prevChar = '';
+      for (let i = lastStringStart - 1; i >= 0; i--) {
+        if (/\s/.test(repaired[i])) continue;
+        prevChar = repaired[i];
+        break;
+      }
+      if (prevChar === '{' || prevChar === ',') {
+        repaired += ': null';
+      }
+    }
+  }
+
+  // Step F: Close open braces and brackets
   let openBraces = 0;
   let openBrackets = 0;
   inString = false;
   escaped = false;
+  const stack: string[] = [];
 
   for (let i = 0; i < repaired.length; i++) {
     const char = repaired[i];
-    if (!escaped && char === '"') inString = !inString;
     if (inString) {
-      escaped = !escaped && char === '\\';
-      continue;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+    } else {
+      if (char === '"') {
+        inString = true;
+        escaped = false;
+      } else if (char === '{') {
+        openBraces++;
+        stack.push('{');
+      } else if (char === '}') {
+        openBraces--;
+        if (stack[stack.length - 1] === '{') stack.pop();
+      } else if (char === '[') {
+        openBrackets++;
+        stack.push('[');
+      } else if (char === ']') {
+        openBrackets--;
+        if (stack[stack.length - 1] === '[') stack.pop();
+      }
     }
-    escaped = false;
-    if (char === '{') openBraces++;
-    if (char === '}') openBraces--;
-    if (char === '[') openBrackets++;
-    if (char === ']') openBrackets--;
   }
 
-  // Close any open structures
-  while (openBrackets > 0) {
-    repaired += ']';
-    openBrackets--;
-  }
-  while (openBraces > 0) {
-    repaired += '}';
-    openBraces--;
+  // Close from stack in reverse order
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (stack[i] === '{') {
+      repaired += '}';
+    } else if (stack[i] === '[') {
+      repaired += ']';
+    }
   }
 
   return repaired;
