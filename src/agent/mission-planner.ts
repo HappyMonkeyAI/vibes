@@ -115,7 +115,7 @@ Constraints:
         { role: 'user', content: `Please plan a mission for the following request:\n\n<request>\n${description}\n</request>` },
       ],
       temperature: 0.1,
-      max_tokens: 4096,
+      max_tokens: 8192,
     });
 
     const message = response.choices[0]?.message as any;
@@ -158,7 +158,7 @@ Constraints:
               { role: 'user', content: `Your previous response was invalid (either invalid JSON or parroted the example template placeholders literally). Output ONLY a raw JSON object detailing the actual plan for this mission. Do not use placeholder titles like "Mission Title", "Milestone Title", or "Task Title". Make sure all milestones, tasks, and files are specific to the request.\n\nPlease plan a mission for:\n\n${description}` },
             ],
             temperature: 0.1,
-            max_tokens: 4096,
+            max_tokens: 8192,
           });
           const retryMsg = retryResponse.choices[0]?.message as any;
           content = extractJsonContent(
