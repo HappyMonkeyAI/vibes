@@ -105,7 +105,8 @@ Constraints:
 
 11. A request for a "web app" means: HTML, CSS, and JavaScript files only. Not a build pipeline, not a service worker, not a deployment config — unless explicitly asked.
 12. Define task dependencies in the "depends_on" field using the exact titles of prerequisite tasks in the plan. If there are no prerequisites, use an empty array. Design the plan so that file creation, code implementation, test suites, and manual verifications follow a logical sequence. Dependencies must be acyclic: never create circular chains (e.g. "Create Component" must not depend on "Add Component Styling" if styling depends on that component). Component implementation tasks come before styling tasks that import those components.
-13. When planning a React, Vite, or web application project, ensure that the project setup or configuration task includes all necessary root entrypoint and index files (such as \`index.html\`, \`src/main.tsx\`, \`src/index.tsx\`, etc. as appropriate for the stack) in its file list so that subsequent build verification checks do not fail due to missing entry modules.`;
+13. When planning a React, Vite, or web application project, ensure that the project setup or configuration task includes all necessary root entrypoint and index files (such as \`index.html\`, \`src/main.tsx\`, \`src/index.tsx\`, etc. as appropriate for the stack) in its file list so that subsequent build verification checks do not fail due to missing entry modules.
+14. **CONCISE REASONING** — Keep your internal thinking/reasoning block extremely brief, direct, and concise (under 150 words). Do not write a long monologue or self-reflection essay; summarize your approach quickly and proceed immediately to output the final raw JSON.`;
 
     const response = await getOllamaClient('planner').chat.completions.create({
       model: plannerModel,
