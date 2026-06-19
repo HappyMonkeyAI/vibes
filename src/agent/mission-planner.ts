@@ -23,9 +23,9 @@ export class MissionPlanner {
       memoriesSection = this.memory.formatMemoriesForPrompt(relevantMemories);
     }
 
-    // Project Rules Discovery Hack
+    // Project Rules Discovery Hack (excluding execution-specific constitution files like AGENTS.md and PROMPT.md)
     let projectRules = '';
-    const ruleFiles = ['AGENTS.md', '.cursorrules', 'PROMPT.md', 'DESIGN.md', 'GEMINI.md', 'CLAUDE.md', 'VIBES.md'];
+    const ruleFiles = ['.cursorrules', 'DESIGN.md', 'GEMINI.md', 'CLAUDE.md', 'VIBES.md'];
     try {
       const fs = await import('fs/promises');
       const path = await import('path');
@@ -143,7 +143,7 @@ Constraints:
     log(`Planner content after think-strip (first 120 chars): ${content.slice(0, 120)}`, 'DEBUG');
 
     let rawPlan;
-    // Retry once with a more forceful prompt if the model returns no JSON at all
+    // Retry once with a more forceful prompt if the model returns no JSON or parrots template
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         // First attempt already has content; retry must make a new API call
@@ -154,7 +154,7 @@ Constraints:
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'assistant', content: content },
-              { role: 'user', content: `Your previous response was not valid JSON. Output ONLY a raw JSON object, no markdown, no explanation, no thinking tags.\n\nPlease plan a mission for:\n\n${description}` },
+              { role: 'user', content: `Your previous response was invalid (either invalid JSON or parroted the example template placeholders literally). Output ONLY a raw JSON object detailing the actual plan for this mission. Do not use placeholder titles like "Mission Title", "Milestone Title", or "Task Title". Make sure all milestones, tasks, and files are specific to the request.\n\nPlease plan a mission for:\n\n${description}` },
             ],
             temperature: 0.1,
             max_tokens: 4096,
@@ -176,6 +176,11 @@ Constraints:
           logObject('Repaired JSON', repaired);
           rawPlan = JSON.parse(repaired);
         }
+
+        if (this.isParrotedTemplate(rawPlan)) {
+          throw new Error('Model parroted the system prompt placeholder template instead of planning the user request.');
+        }
+
         break; // success
       } catch (err: any) {
         if (attempt === 1) {
@@ -230,13 +235,13 @@ Constraints:
               t.depends_on.forEach((depTitle: string) => {
                 const depTitleNorm = depTitle.trim().toLowerCase();
                 const matchedId = taskTitleToIdMap.get(depTitleNorm);
-                if (matchedId) {
+                if (matchedId && matchedId !== t.id) {
                   resolvedDeps.push(matchedId);
-                } else {
+                } else if (matchedId !== t.id) {
                   // Fallback: search for a task title that contains or matches closely
                   let found = false;
                   for (const [title, id] of taskTitleToIdMap.entries()) {
-                    if (title.includes(depTitleNorm) || depTitleNorm.includes(title)) {
+                    if (id !== t.id && (title.includes(depTitleNorm) || depTitleNorm.includes(title))) {
                       resolvedDeps.push(id);
                       found = true;
                       break;
@@ -303,6 +308,31 @@ Constraints:
       log(`Failed to process mission plan: ${error.message}`, 'ERROR');
       throw error;
     }
+  }
+
+  private isParrotedTemplate(rawPlan: any): boolean {
+    if (!rawPlan) return false;
+    
+    // Check top level title
+    const title = String(rawPlan.title || '').trim().toLowerCase();
+    if (title === 'mission title') return true;
+
+    // Check milestones and tasks
+    if (Array.isArray(rawPlan.milestones)) {
+      for (const m of rawPlan.milestones) {
+        const mTitle = String(m.title || '').trim().toLowerCase();
+        if (mTitle === 'milestone title') return true;
+
+        if (Array.isArray(m.tasks)) {
+          for (const t of m.tasks) {
+            const tTitle = String(t.title || '').trim().toLowerCase();
+            if (tTitle === 'task title') return true;
+          }
+        }
+      }
+    }
+    
+    return false;
   }
 
   /**

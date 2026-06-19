@@ -125,6 +125,12 @@ ${diffContent}
         return '';
       }
       const escapedFiles = files.map(f => `"${f.replace(/"/g, '\\"')}"`).join(' ');
+      try {
+        // Run git add -N so that untracked/newly created files are visible to git diff HEAD
+        execSync(`git add -N -- ${escapedFiles}`, { cwd: workspaceRoot, stdio: 'ignore' });
+      } catch {
+        // Ignore if some files do not exist on disk yet
+      }
       const diffOutput = execSync(`git diff HEAD -- ${escapedFiles}`, { cwd: workspaceRoot }).toString();
       return diffOutput;
     } catch (err: any) {
