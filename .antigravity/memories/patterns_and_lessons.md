@@ -110,18 +110,21 @@ confidence: high
 - **Pattern:** Detect tech stack once at plan time in `MissionPlanner`, store it on `Mission.tech_stack`, propagate it through `Scheduler` into each `executeTask(... techStack)` call so both the executor system prompt and the Codex semantic query are correctly prefixed — without re-scanning the filesystem per task.
 - **Why it works:** Stack detection (filesystem scan + `package.json` parse) is I/O-expensive. Running it once at planning time keeps per-task execution overhead minimal while ensuring every prompt the executor receives contains precise language/framework context (`Tech Stack: typescript, react, css`). The fallback (`?? detectTechStack(workspaceRoot)`) in `executeTask` handles standalone test invocations gracefully.
 
-### 14. JS Heap OOM in Long-Running Agent Loops (3 fixes)
-- **Lesson:** A long-running agent harness (3+ hours, YOLO mode) will OOM if the `messages[]` array, thrash detector, and tokenizer all accumulate memory without bounds.
+### 14. JS Heap OOM in Long-Running Agent Loops (4 fixes)
+- **Lesson:** A long-running agent harness (3+ hours, YOLO mode) will OOM if the `messages[]` array, thrash detector, tokenizer, or persistent event flusher accumulate memory or run high-frequency I/O loops without bounds.
 - **Root Cause A — Unbounded `messages[]`:** `compressMessages` only triggers when the token budget is exceeded. When a small model produces short outputs, the token count may stay under budget while the raw JS object count grows into hundreds of entries holding gigabytes of string data.
 - **Root Cause B — O(n²) thrash detector:** `shouldStopAfterTurn` rebuilt the full `callHistory[]` from the entire `messages` array on every step (O(n) scan × O(n) filter = O(n²) per step). At step 500 this is scanning 1,000+ messages per turn.
 - **Root Cause C — Repeated tokenization of static content:** `estimateTokens()` called `gpt-tokenizer`'s `encode()` on every message including the static system prompt every step, creating fresh `Uint32Array` buffers each time.
 - **Root Cause D — Helper function allocation inside step loop:** The `formatToolResult` helper function was defined inside the step loop. Each iteration allocated a fresh function closure object in the heap. In long agent executions (high step count/turns), this caused massive GC overhead and triggered a JS heap allocation failure / OOM crash.
+- **Root Cause E — High-frequency session list read/write loop:** `flushEvents` inside the TUI's `useMission` hook ran every 100ms when events occurred (e.g. log output). During active execution, it called `saveSession` (pretty-printing large session files to disk) and `listSessions` (reading and parsing all session JSON files in the workspace) on every flush. This created continuous disk I/O and allocated massive numbers of objects via `JSON.parse`, quickly leading to GC heap limit allocation failure / OOM.
 - **Fix A:** Add `MSG_HARD_CAP = 150` in `task-executor.ts` before the `transformContext` check. Call `compressMessages(messages, true)` (force flag) to always compress when message count exceeds the cap, regardless of token budget. (`context-manager.ts` accepts new `force = false` optional param.)
 - **Fix B:** Replace the per-step rebuild in `createDefaultHooks` with a `Map<string, number>` (`_thrashCallCounts`) maintained in the closure — incremented each turn, bounded at 500 entries with insertion-order eviction. O(1) per step.
 - **Fix C:** Add a module-level `TOKEN_COUNT_CACHE = new Map<string, number>()` (max 512 entries, LRU eviction) in `context-manager.ts`. `estimateTokens()` checks the cache first; static strings like the system prompt are encoded only once per session.
 - **Fix D:** Move helper functions (like `formatToolResult`) out of the dynamic step loop and declare them as class methods or external functions.
-- **Files:** `src/agent/task-executor.ts`, `src/agent/context-manager.ts`
-- **Commit:** `fix: resolve memory leak by moving formatToolResult helper out of the agent turn loop`
+- **Fix E:** Avoid running `listSessions` and `saveSession` inside `flushEvents` on every event flush. Track execution events via a mutable ref `allEventsRef`, only write/save to disk on discrete key milestones (`task_started`, `task_completed`, `task_failed`, `intervention_required`), and defer updating the full session list with `listSessions` to the start, intervention resolution, or end of task/mission executions.
+- **Files:** `src/agent/task-executor.ts`, `src/agent/context-manager.ts`, `src/tui/hooks/use-mission.ts`
+- **Commit:** `fix: resolve memory leak by moving formatToolResult helper out of the agent turn loop` and `fix: resolve session I/O memory leak in event flusher`
+
 
 ### 15. Settings TUI Infinite Re-render Loop
 - **Lesson:** In Ink TUIs, rendering nested child views (like SettingsView) with inline event handlers or state updates inside `useEffect` can trigger a cascading infinite re-render loop ("Maximum update depth exceeded").
