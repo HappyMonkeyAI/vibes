@@ -202,7 +202,14 @@
     { "id": "T5", "title": "Write comprehensive test suite for agent loop", "status": "pending", "priority": "medium" },
     { "id": "T6", "title": "Update README with current keyboard shortcut table", "status": "completed", "priority": "low" },
     { "id": "T8", "title": "Keep wiki and project.json in sync with releases", "status": "completed", "priority": "medium" },
-    { "id": "T7", "title": "CI/CD pipeline for npm publish", "status": "pending", "priority": "low" }
+    { "id": "T7", "title": "CI/CD pipeline for npm publish", "status": "pending", "priority": "low" },
+    {
+      "id": "T9",
+      "title": "Seed default .gitignore on git init before initial workspace snapshot (PR #23 Amazon Q follow-up)",
+      "status": "pending",
+      "priority": "low",
+      "notes": "git add -A already respects .gitignore when present; risk is scratch workspaces with no .gitignore (.env, node_modules). Local-only, not merge-blocking. See patterns_and_lessons #35."
+    }
   ],
   "files_of_interest": [
     "src/agent/scheduler.ts",
@@ -264,7 +271,8 @@
     "Polish panel focus cycling and keyboard shortcut hints",
     "Implement adversarial audit phase for critical missions",
     "Write and expand test coverage (unit + integration)",
-    "Set up CI/CD for automated validation and npm publishing"
+    "Set up CI/CD for automated validation and npm publishing",
+    "Seed default .gitignore on scratch-workspace git init (T9, deferred from PR #23 review)"
   ],
   "key_files": {
     "src/index.tsx": "TUI entry point and app shell",

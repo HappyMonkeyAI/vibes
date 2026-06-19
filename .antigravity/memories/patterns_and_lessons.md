@@ -270,5 +270,12 @@ confidence: high
 - **Files:** `src/agent/json-repair.ts`, `src/agent/reviewer.ts`, `src/agent/triage-agent.ts`, `tests/json-repair.test.mjs`
 - **Commit:** `fix: ignore unclosed think block content and apply repairJson fallback in triage-agent and reviewer`
 
+### 36. Scratch Workspace Git Init — Amazon Q PR #23 Review (Deferred)
+
+- **Context:** PR #23 (`development` → `main`, v0.3.0). Amazon Q flagged `git add -A` in `use-mission.ts` as a critical security issue (CWE-200), claiming it ignores `.gitignore`.
+- **Verdict:** **Mostly false positive.** `git add -A` respects `.gitignore` when one exists. Real edge case: brand-new scratch workspace with **no** `.gitignore` may commit `.env`, `node_modules`, etc. into a **local-only** repo for undo snapshots — not auto-pushed.
+- **Follow-up (T9, pick up tomorrow):** On `git init`, write a default `.gitignore` if missing (`.env`, `.env.*`, `node_modules/`, `dist/`, `.vibes-backups/`) before `git add -A`. Low priority; not merge-blocking.
+- **Files:** `src/tui/hooks/use-mission.ts`
+- **PR:** https://github.com/HappyMonkeyAI/vibes/pull/23
 
 
