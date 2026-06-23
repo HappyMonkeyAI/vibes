@@ -17,7 +17,8 @@ Vibes is uniquely designed to punch above its weight class. While it shines with
 
 | Model Class | Role Recommendation | Tool Support | Verdict |
 | :--- | :--- | :---: | :--- |
-| **Qwen 2.5 9B** | 🏆 **Primary Executor** | ✅ Full | The "Gold Standard" for local agents. Reliable and clean. |
+| **Qwythos-9B-Claude-Mythos-5-1M** | 🥇 **Primary Executor** | ✅ Full | Best 9B tested. Consistent structure, lowest error rate, writes tests. |
+| **Qwen 2.5 9B** | 🏆 **Primary Executor** | ✅ Full | The previous "Gold Standard" for local agents. Reliable and clean. |
 | **Gemma-4 12B QAT** | **Reviewer / Executor** | ✅ Full | Strong reasoning; first Gemma to work with local tools. |
 | **Phi-4 Mini (3.8B)** | **Mission Planner** | ✅ Partial | Excellent logic; fails at complex code but great for planning. |
 | **Phi-4 Reasoning+** | **All-in-One** | ✅ Full | Large (14.7B) and capable. Potential single-model solution. |
@@ -26,6 +27,18 @@ Vibes is uniquely designed to punch above its weight class. While it shines with
 ---
 
 ## 🔍 Detailed Test Reports
+
+### 🟢 Test 30: Qwythos-9B — All Roles *(June 23, 2026)*
+**Config:** All roles: `Qwythos-9B-Claude-Mythos-5-1M-Q4_K_M` | Codex: Enabled | Thinking: Enabled (1M context, YaRN)
+*   **Prompt:** *"Create a loading skeleton component with shimmer animation, variant shapes, and Suspense integration"*
+*   **Files Produced:** 7 — `SkeletonBase.tsx`, `SkeletonBase.test.tsx`, `SkeletonCircle.tsx`, `SkeletonRect.tsx`, `SkeletonRounded.tsx`, `SkeletonSuspense.tsx`, `package.json` (with exports map)
+*   **Tool Error Rate:** 2 errors (both ENOENT on pre-existence checks at session start — expected, not navigational failures)
+*   **Test File:** ✅ Wrote a real `vitest` test suite (6 test cases covering render, shimmer, props, Suspense)
+*   **Architecture:** Used `@emotion/react-styled` for typed styled-components, clean prop interfaces, `useSkeleton()` hook pattern across variants
+*   **Insight:** This is the first 9B model to spontaneously produce a test file without being explicitly prompted for one. The Claude CoT training is visible — structured thinking before each file. Minor API inconsistency: `SkeletonCircle` references a `SkeletonProps` type not exported from `SkeletonBase` (the base only exports `SkeletonBaseProps`). `SkeletonRect`/`SkeletonRounded` reference a `useSkeleton()` hook that was never implemented — a fabrication. The Suspense wrapper hard-codes a static skeleton instead of wrapping children. These are 9B-class limitations, not regressions.
+*   **Quality: 4/5** — Best structural output of any 9B tested. Test generation is a genuine new capability vs. prior models. Hook hallucination is a known small-model failure mode.
+
+---
 
 ### 🟢 Test 19: The "Google Stack"
 **Config:** All roles: `Gemma-4-12B-QAT` | Codex: Enabled | Thinking: Enabled
@@ -65,7 +78,7 @@ For the best balance of speed and intelligence on consumer hardware:
 | Role | Recommended Model | Rationale |
 | :--- | :--- | :--- |
 | **Planner** | `phi-4-mini-reasoning` | Fast logic, good JSON structure. |
-| **Executor** | `qwen3.5-9b-deepseek-v4` | Best-in-class code generation for its size. |
+| **Executor** | `qwythos-9b-claude-mythos-5-1m-q4_k_m` | 🆕 New top performer. Writes tests, lower tool error rate than Qwen-9B, clean structured output from Claude CoT training. |
 | **Reviewer** | `gemma-4-12b-qat` | High reasoning for catching bugs. |
 | **Triage** | `qwen3.5-2b` | Zero-latency monitoring. |
 
@@ -73,9 +86,11 @@ For the best balance of speed and intelligence on consumer hardware:
 
 ## 📈 Future Benchmarks
 We are actively testing the following models:
+- [x] **Qwythos-9B-Claude-Mythos-5-1M** (Test 30 — June 2026, Q4_K_M, all roles) ✅
+- [ ] **Qwythos-9B MTP variant** (Test spec: `--spec-type draft-mtp` throughput gain measurement)
 - [ ] **Llama 3.1 8B** (Tool calling stability)
 - [ ] **Mistral NeMo 12B** (Context handling)
 - [ ] **DeepSeek R1 Distills** (Reasoning-to-Code efficiency)
 
 ---
-*Last Updated: June 2026*
+*Last Updated: June 23, 2026 — Test 30 (Qwythos-9B)*
