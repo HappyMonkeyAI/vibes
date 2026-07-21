@@ -1,6 +1,6 @@
 # 🌌 Vibes
 
-**Vibes** is a high-performance, autonomous TUI (Terminal User Interface) harness designed for the **Gemma4 26B** model. It empowers you to manage complex missions by breaking them down into actionable milestones and tasks, all within a sleek, interactive terminal environment.
+**Vibes** is a high-performance, autonomous TUI (Terminal User Interface) harness designed for **small, local LLM models** (e.g., Qwen, Gemma, Phi, and bespoke 27B harnesses). It empowers you to manage complex missions by breaking them down into actionable milestones and tasks, all within a sleek, interactive terminal environment.
 
 Built with **Ink 6** and **React 19**, Vibes connects to local LLM servers (Ollama, LM Studio) to provide a state-of-the-art agentic experience with hierarchical planning and DAG-based autonomous scheduling.
 
@@ -8,7 +8,7 @@ Built with **Ink 6** and **React 19**, Vibes connects to local LLM servers (Olla
 
 ## ✨ Features
 
-- **🎯 Hierarchical Mission Planning**: Automatically break down high-level missions into milestones and actionable tasks using Gemma4's 32K context window.
+- **🎯 Hierarchical Mission Planning**: Automatically break down high-level missions into milestones and actionable tasks using the local model's context window.
 - **🤖 Autonomous Agent Loop**: Executes individual tasks with a robust loop, supporting tool calls, streaming responses, and reasoning-first thinking.
 - **📅 DAG-Based Scheduler**: Manages task dependencies, parallel execution, deadlock detection for circular `depends_on` chains, and auto-discovery of new tasks during execution.
 - **📟 Interactive TUI**: A premium terminal experience featuring:
@@ -191,7 +191,7 @@ This project is licensed under the [MIT License](LICENSE.md).
 
 ---
 
-*Built with ❤️ for the Gemma community.*
+*Built with ❤️ for the open-source local LLM community.*
 
 Test Mission: Create a loading skeleton component with shimmer animation, variant shapes, and Suspense integration
 Test Concurrency Multislot: 

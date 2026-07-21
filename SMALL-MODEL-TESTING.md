@@ -17,8 +17,10 @@ Vibes is uniquely designed to punch above its weight class. While it shines with
 
 | Model Class | Role Recommendation | Tool Support | Verdict |
 | :--- | :--- | :---: | :--- |
-| **Qwythos-9B-Claude-Mythos-5-1M** | 🥇 **Primary Executor** | ✅ Full | Best 9B tested. Consistent structure, lowest error rate, writes tests. |
-| **Qwen 2.5 9B** | 🏆 **Primary Executor** | ✅ Full | The previous "Gold Standard" for local agents. Reliable and clean. |
+| **Qwen 3.6 27B NVFP4 MTP** | 🏆 **Gold Standard Executor** | ✅ Full | **Test 31:** 100% completion rate (6/6 tasks). 1-step build self-healing, zero hallucinations, fast MTP throughput. |
+| **Ternary-Bonsai-27B-Q2_0** | **Speed / Experimental** | ✅ Full | **Test 32:** Extremely fast (~47 tok/s, 7.15GB). High TS code quality & 1-step self-healing, but stalled 55% into 9-task mission. |
+| **Qwythos-9B-Claude-Mythos-5-1M** | 🥇 **Primary 9B Executor** | ✅ Full | Best 9B tested. Consistent structure, lowest error rate, writes tests. |
+| **Qwen 2.5 9B** | **Legacy Executor** | ✅ Full | The previous standard for local agents. Reliable and clean. |
 | **Gemma-4 12B QAT** | **Reviewer / Executor** | ✅ Full | Strong reasoning; first Gemma to work with local tools. |
 | **Phi-4 Mini (3.8B)** | **Mission Planner** | ✅ Partial | Excellent logic; fails at complex code but great for planning. |
 | **Phi-4 Reasoning+** | **All-in-One** | ✅ Full | Large (14.7B) and capable. Potential single-model solution. |
@@ -27,6 +29,27 @@ Vibes is uniquely designed to punch above its weight class. While it shines with
 ---
 
 ## 🔍 Detailed Test Reports
+
+### 🟢 Test 32: Ternary-Bonsai-27B-Q2_0 — All Roles *(July 21, 2026)*
+**Config:** All roles: `Ternary-Bonsai-27B-Q2_0.gguf` | Endpoint: `http://192.168.5.157:8080/v1` | Context: 32K | Reasoning: Enabled
+*   **Prompt:** *"Build a reusable skeleton loading component with shimmer animation, multiple shape variants, and React Suspense integration"*
+*   **Files Produced:** 5 — `Skeleton.tsx`, `SkeletonCircle.tsx`, `SkeletonLine.tsx`, `SuspenseWrapper.tsx`, `shimmer.css`
+*   **Throughput & Size:** ~46.9 tok/s generation speed; ~7.15 GB VRAM footprint (2-bit ternary quantization).
+*   **Self-Healing:** ✅ Structural audit detected an unimported CSS file (`shimmer.css`). Model autonomously self-healed in 1 step by adding `import './styles/shimmer.css';` to `src/main.tsx` and adding `.shimmer` class styles.
+*   **Insight:** Excellent individual component quality and clean TypeScript interfaces. However, heavy 2-bit quantization leads to context fatigue on multi-turn loops, causing execution to stall 5/9 tasks into the plan (`SkeletonRectangle`, `SkeletonCard`, and demo `App.tsx` remained `todo`).
+*   **Quality: 3.5/5** — Extremely fast and clean code output, but limited multi-turn persistence on long DAG plans.
+
+---
+
+### 🟢 Test 31: Qwen 3.6 27B NVFP4 MTP — All Roles *(July 20, 2026)*
+**Config:** All roles: `qwen3.6-27b-nvfp4-mtp` | Codex: Enabled | Thinking: Enabled (32K context)
+*   **Prompt:** *"Create a React loading skeleton component library with shimmer animation, multiple variant shapes, and Suspense integration for seamless loading states"*
+*   **Files Produced:** 5 — `Skeleton.tsx`, `Skeleton.css`, `SkeletonCircle.tsx`, `SkeletonText.tsx`, `SkeletonSuspense.tsx`
+*   **Self-Healing:** ✅ Unused import (`SkeletonProps`) caused a `TS6133` compilation error during `SkeletonCircle` creation. Reviewer feedback triggered an immediate 1-step self-heal, clearing `npx tsc --noEmit` to zero errors.
+*   **Architecture:** Clean modular components, proper percentage-based text simulation, zero orphaned files, zero hallucinated hooks.
+*   **Quality: 5/5** — Best overall performance. 100% completion rate (6/6 tasks across 3 milestones), zero structural flaws, and fast MTP throughput.
+
+---
 
 ### 🟢 Test 30: Qwythos-9B — All Roles *(June 23, 2026)*
 **Config:** All roles: `Qwythos-9B-Claude-Mythos-5-1M-Q4_K_M` | Codex: Enabled | Thinking: Enabled (1M context, YaRN)
@@ -77,15 +100,17 @@ For the best balance of speed and intelligence on consumer hardware:
 
 | Role | Recommended Model | Rationale |
 | :--- | :--- | :--- |
-| **Planner** | `phi-4-mini-reasoning` | Fast logic, good JSON structure. |
-| **Executor** | `qwythos-9b-claude-mythos-5-1m-q4_k_m` | 🆕 New top performer. Writes tests, lower tool error rate than Qwen-9B, clean structured output from Claude CoT training. |
-| **Reviewer** | `gemma-4-12b-qat` | High reasoning for catching bugs. |
+| **Planner** | `phi-4-mini-reasoning` / `qwen3.6-27b-nvfp4-mtp` | Fast logic, strict JSON adherence. |
+| **Executor** | `qwen3.6-27b-nvfp4-mtp` | 🏆 Top overall executor. 100% task completion, zero hallucinations, instant TS error recovery. |
+| **Reviewer** | `qwen3.6-27b-nvfp4-mtp` / `gemma-4-12b-qat` | High reasoning for catching compilation and structural issues. |
 | **Triage** | `qwen3.5-2b` | Zero-latency monitoring. |
 
 ---
 
 ## 📈 Future Benchmarks
 We are actively testing the following models:
+- [x] **Qwen 3.6 27B NVFP4 MTP** (Test 31 — July 2026, 100% completion) ✅
+- [x] **Ternary-Bonsai-27B-Q2_0** (Test 32 — July 2026, 2-bit GGUF, 47 tok/s) ✅
 - [x] **Qwythos-9B-Claude-Mythos-5-1M** (Test 30 — June 2026, Q4_K_M, all roles) ✅
 - [ ] **Qwythos-9B MTP variant** (Test spec: `--spec-type draft-mtp` throughput gain measurement)
 - [ ] **Llama 3.1 8B** (Tool calling stability)
@@ -93,4 +118,4 @@ We are actively testing the following models:
 - [ ] **DeepSeek R1 Distills** (Reasoning-to-Code efficiency)
 
 ---
-*Last Updated: June 23, 2026 — Test 30 (Qwythos-9B)*
+*Last Updated: July 21, 2026 — Test 32 (Ternary-Bonsai-27B-Q2_0)*
