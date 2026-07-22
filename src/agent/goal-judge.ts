@@ -5,6 +5,7 @@ import { log } from '../logger.js';
 import { runStructuralAudit } from './structural-audit.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { runRepositoryAudit } from './repository-audit.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -84,7 +85,9 @@ export class GoalJudge {
       }
     }
 
-    return { approved: true, unmetCriteria: [] };
+    const repositoryWarnings = runRepositoryAudit(baseDir)
+      .map(issue => `[${issue.type}] ${issue.file}: ${issue.message}`);
+    return { approved: true, unmetCriteria: [], auditWarnings: repositoryWarnings };
   }
 
   /**

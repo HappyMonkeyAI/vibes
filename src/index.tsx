@@ -27,7 +27,7 @@ const App = () => {
   const {
     mission, pendingMission, isPlanning, isExecuting,
     error, events, contextUsage, pendingIntervention, activeMaxSteps,
-    isYoloMode, toggleYoloMode, sessions, triageState, governorStats,
+    isYoloMode, toggleYoloMode, sessions, triageState, governorStats, runSummaries,
     startMission, approveMission, rejectMission, resolveIntervention, resetMission, undoMission,
     loadSession, deleteSession,
   } = useMission();
@@ -310,7 +310,7 @@ const App = () => {
         )}
 
         {!pendingMission && !pendingIntervention && view === 'task' && (
-          <TaskView events={events} isExecuting={isExecuting} />
+          <TaskView events={events} isExecuting={isExecuting} runSummaries={runSummaries} />
         )}
         
         {!pendingMission && !pendingIntervention && view === 'log' && (

@@ -6,6 +6,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { MemoryItem, normalizeMemoryItem, dedupeMemoryItems } from './memory-item.js';
 
 export interface MemoryOptions {
   userId?: string;
@@ -47,6 +48,10 @@ export class LocalMemoryService {
   /** User-scoped file path. */
   private get filePath(): string {
     return path.join(this.storageDir, `${this.userId}.jsonl`);
+  }
+
+  private get structuredFilePath(): string {
+    return path.join(this.storageDir, 'items', `${this.userId}.jsonl`);
   }
 
   /** Load existing memory entries from disk. */
@@ -98,6 +103,32 @@ export class LocalMemoryService {
   async addToolUsage(toolName: string, args: Record<string, any>, result: any): Promise<void> {
     const context = `Used tool: ${toolName} with args: ${JSON.stringify(args)}. Result: ${JSON.stringify(result).slice(0, 200)}`;
     await this.addContext(context, { type: 'tool_usage', tool: toolName });
+  }
+
+  async addMemoryItem(input: Omit<MemoryItem, 'id' | 'timestamp'> & Partial<Pick<MemoryItem, 'id' | 'timestamp'>>): Promise<MemoryItem> {
+    await this.ensureReady();
+    const item = normalizeMemoryItem(input);
+    await fs.mkdir(path.dirname(this.structuredFilePath), { recursive: true });
+    await fs.appendFile(this.structuredFilePath, `${JSON.stringify(item)}\n`, 'utf8');
+    return item;
+  }
+
+  async retrieveMemoryItems(query: string, topK: number = 5): Promise<MemoryItem[]> {
+    await this.ensureReady();
+    let content = '';
+    try {
+      content = await fs.readFile(this.structuredFilePath, 'utf8');
+    } catch {
+      return [];
+    }
+    const items = content.split('\n').filter(Boolean).map(line => JSON.parse(line) as MemoryItem);
+    const terms = query.toLowerCase().split(/\s+/).filter(term => term.length > 2);
+    return dedupeMemoryItems(items)
+      .map(item => ({ item, score: terms.reduce((score, term) => score + (item.content.toLowerCase().includes(term) || item.summary.toLowerCase().includes(term) ? term.length : 0), 0) }))
+      .filter(result => result.score > 0 && result.item.confidence > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK)
+      .map(result => result.item);
   }
 
   async retrieveRelevant(query: string, topK: number = 5): Promise<string[]> {

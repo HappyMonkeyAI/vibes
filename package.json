@@ -20,7 +20,9 @@
     "prepack": "npm run build",
     "start": "tsx --no-warnings src/index.tsx",
     "dev": "tsx watch --no-warnings --exclude .vibes --exclude dist --clear-screen=false src/index.tsx",
-    "mcp-server": "tsx --no-warnings src/mcp/server.ts"
+    "mcp-server": "tsx --no-warnings src/mcp/server.ts",
+    "bench:harness": "npm run build && node scripts/bench-harness.mjs --json",
+    "test:tui-capture": "npm run build && node --test tests/tui-capture.test.mjs"
   },
   "repository": {
     "type": "git",

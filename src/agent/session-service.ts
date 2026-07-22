@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Mission, ExecutionEvent, CompactionDetails } from './types.js';
 import { log } from '../logger.js';
+import { SessionIndex, SessionSummary } from './session-index.js';
 
 export interface SessionData {
   mission: Mission;
@@ -13,9 +14,11 @@ export interface SessionData {
 export class SessionService {
   private sessionsDir: string;
   private writeQueues = new Map<string, Promise<void>>();
+  private index: SessionIndex;
 
   constructor(workspaceRoot: string = process.cwd()) {
     this.sessionsDir = path.join(workspaceRoot, '.vibes', 'sessions');
+    this.index = new SessionIndex(workspaceRoot);
   }
 
   private async ensureDir() {
@@ -46,6 +49,14 @@ export class SessionService {
         const tempPath = `${sessionPath}.tmp`;
         await fs.writeFile(tempPath, JSON.stringify(data, null, 2), 'utf8');
         await fs.rename(tempPath, sessionPath);
+        await this.index.upsert({
+          id: mission.id,
+          title: mission.title,
+          status: mission.status,
+          updatedAt: data.updatedAt,
+          eventCount: events.length,
+          workspace: mission.workspace_root,
+        });
       } catch (err: any) {
         log(`Failed to save session ${mission.id}: ${err.message}`, 'ERROR');
       }
@@ -91,6 +102,10 @@ export class SessionService {
     } catch (err) {
       return [];
     }
+  }
+
+  async listSessionSummaries(): Promise<SessionSummary[]> {
+    return this.index.list();
   }
 
   /**

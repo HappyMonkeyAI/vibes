@@ -12,6 +12,9 @@ import { config } from '../../config.js';
 import { getMCPService } from '../../mcp/mcp-service.js';
 import { getSessionService, SessionData } from '../../agent/session-service.js';
 import { formatModelProviderError } from '../../ollama-client.js';
+import { applyLiveEvent, createLiveEventState, flushLiveEventState } from '../event-view-model.js';
+import { createApprovalHook } from '../../agent/approval-policy.js';
+import type { RunRecord } from '../../agent/run-registry.js';
 
 export const useMission = () => {
   const [mission, setMission] = useState<Mission | null>(null);
@@ -27,6 +30,10 @@ export const useMission = () => {
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [triageState, setTriageState] = useState<{ state: 'watching' | 'guiding' | 'escalated'; message?: string } | null>(null);
   const [governorStats, setGovernorStats] = useState<{ turnsUsed: number; maxTurns: number; tokensUsed: number; maxTokens: number } | null>(null);
+  const [liveThinking, setLiveThinking] = useState('');
+  const [liveOutput, setLiveOutput] = useState('');
+  const [eventBacklog, setEventBacklog] = useState(0);
+  const [runSummaries, setRunSummaries] = useState<RunRecord[]>([]);
 
   // Hold a direct ref to the running scheduler so we can resolve interventions on it
   const schedulerRef = useRef<Scheduler | null>(null);
@@ -36,6 +43,7 @@ export const useMission = () => {
   // Event buffer for throttled rendering — prevents re-render storming
   const eventBufferRef = useRef<ExecutionEvent[]>([]);
   const allEventsRef = useRef<ExecutionEvent[]>([]);
+  const liveEventStateRef = useRef(createLiveEventState());
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushEvents = useCallback(() => {
     if (flushTimerRef.current) {
@@ -46,11 +54,20 @@ export const useMission = () => {
     const buffered = eventBufferRef.current;
     eventBufferRef.current = [];
 
-    setEvents([...allEventsRef.current]);
+    for (const event of buffered) {
+      liveEventStateRef.current = applyLiveEvent(liveEventStateRef.current, event);
+    }
+    const flushedBacklog = liveEventStateRef.current.backlog;
+    liveEventStateRef.current = flushLiveEventState(liveEventStateRef.current);
+    setLiveThinking(liveEventStateRef.current.activeThinking);
+    setLiveOutput(liveEventStateRef.current.activeOutput);
+    setEventBacklog(flushedBacklog);
+    setEvents([...liveEventStateRef.current.completed]);
 
     if (schedulerRef.current) {
       const currentMission = { ...schedulerRef.current.mission };
       setMission(currentMission);
+      setRunSummaries(schedulerRef.current.runs);
 
       // Only save session on significant events to minimize disk writes
       const shouldSave = buffered.some(evt =>
@@ -106,6 +123,11 @@ export const useMission = () => {
     setError(null);
     setEvents([]);
     allEventsRef.current = [];
+    liveEventStateRef.current = createLiveEventState();
+    setLiveThinking('');
+    setLiveOutput('');
+    setEventBacklog(0);
+    setRunSummaries([]);
     setContextUsage(null);
     setPendingMission(null);
     setPendingIntervention(null);
@@ -179,6 +201,9 @@ export const useMission = () => {
       ];
       const triage = config.TRIAGE_ENABLED ? new TriageAgent(config.TRIAGE_AUTO_STEER) : null;
       const baseHooks = createDefaultHooks(() => isYoloRef.current);
+      if (config.APPROVAL_MODE !== 'legacy') {
+        baseHooks.beforeToolCall = createApprovalHook({ mode: config.APPROVAL_MODE });
+      }
       const executor = new TaskExecutor(tools, {
         getYoloMode: () => isYoloRef.current,
         hooks: triage ? withTriageHooks(baseHooks, triage) : baseHooks,
@@ -208,7 +233,9 @@ export const useMission = () => {
 
         // Buffer events and flush periodically to avoid re-render storming
         eventBufferRef.current.push(event);
-        allEventsRef.current.push(event);
+        if (event.type !== 'thinking_delta' && event.type !== 'output_delta') {
+          allEventsRef.current.push(event);
+        }
         const MAX_EVENTS = 1000;
         if (allEventsRef.current.length > MAX_EVENTS) {
           allEventsRef.current = allEventsRef.current.slice(allEventsRef.current.length - MAX_EVENTS);
@@ -218,7 +245,10 @@ export const useMission = () => {
         }
       };
 
-      const scheduler = new Scheduler(plan, executor, onEvent, () => isYoloRef.current);
+      const persistSchedulerState = async (currentMission: Mission) => {
+        await sessionService.saveSession(currentMission, [...allEventsRef.current], { readFiles: [], modifiedFiles: [] });
+      };
+      const scheduler = new Scheduler(plan, executor, onEvent, () => isYoloRef.current, persistSchedulerState);
       if (triage) scheduler.triageAgent = triage;
       schedulerRef.current = scheduler;
 
@@ -324,6 +354,10 @@ export const useMission = () => {
     isExecuting,
     error,
     events,
+    liveThinking,
+    liveOutput,
+    eventBacklog,
+    runSummaries,
     contextUsage,
     pendingIntervention,
     activeMaxSteps,

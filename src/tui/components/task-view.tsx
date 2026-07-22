@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { ExecutionEvent } from '../../agent/types.js';
+import type { RunRecord } from '../../agent/run-registry.js';
 
 interface TaskViewProps {
   events: ExecutionEvent[];
   isExecuting: boolean;
+  runSummaries?: RunRecord[];
 }
 
-export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuting }) => {
+export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuting, runSummaries = [] }) => {
   const [dots, setDots] = useState('');
 
   // Heartbeat animation
@@ -31,6 +33,21 @@ export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuti
         <Text bold color="yellow">Live Agent Execution</Text>
         {isExecuting && <Text color="yellow"> {dots}</Text>}
       </Box>
+      {runSummaries.length > 0 && (
+        <Box flexDirection="column" paddingBottom={1}>
+          <Text bold color="magenta">Worker Runs</Text>
+          {runSummaries.slice(-6).map(run => (
+            <Box key={run.runId}>
+              <Text color={run.status === 'failed' ? 'red' : run.status === 'completed' ? 'green' : 'yellow'}>
+                {run.status.toUpperCase().padEnd(9)}
+              </Text>
+              <Text color="cyan"> {run.taskId}</Text>
+              <Text color="gray"> attempt {run.attempt}</Text>
+              {run.currentTool && <Text color="gray"> · {run.currentTool}</Text>}
+            </Box>
+          ))}
+        </Box>
+      )}
       
       <Box flexDirection="column">
         {events.slice(-15).map((event, idx) => {
@@ -40,6 +57,13 @@ export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuti
                 <Box key={idx} paddingBottom={1}>
                   <Text color="blue" italic>Thinking: </Text>
                   <Text color="gray" dimColor>{event.content.slice(0, 100)}{event.content.length > 100 ? '...' : ''}</Text>
+                </Box>
+              );
+            case 'thinking_delta':
+              return (
+                <Box key={idx}>
+                  <Text color="blue" italic>Thinking ▸ </Text>
+                  <Text color="gray" dimColor>{event.content}</Text>
                 </Box>
               );
             case 'tool_call':
@@ -62,6 +86,12 @@ export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuti
             case 'output':
               return (
                 <Box key={idx} paddingBottom={1} borderStyle="single" borderColor="green" paddingX={1}>
+                  <Text color="green">{event.content}</Text>
+                </Box>
+              );
+            case 'output_delta':
+              return (
+                <Box key={idx}>
                   <Text color="green">{event.content}</Text>
                 </Box>
               );

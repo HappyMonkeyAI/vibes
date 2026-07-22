@@ -1,13 +1,14 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { execSync } from 'child_process';
 import { Mission } from '../../agent/types.js';
+import { useDiffModel } from '../hooks/use-diff-model.js';
 
 interface DiffViewProps {
   mission: Mission;
 }
 
 export const DiffView: React.FC<DiffViewProps> = React.memo(({ mission }) => {
+  const { diffContent, isLoading, error } = useDiffModel(mission.workspace_root);
   // Find all active or completed tasks
   const activeTasks = mission.milestones
     .flatMap(m => m.tasks)
@@ -21,12 +22,12 @@ export const DiffView: React.FC<DiffViewProps> = React.memo(({ mission }) => {
     );
   }
 
-  // Fetch current git diff in the workspace
-  let diffContent = '';
-  try {
-    diffContent = execSync('git diff HEAD', { cwd: mission.workspace_root }).toString();
-  } catch (err: any) {
-    diffContent = `Failed to get git diff: ${err.message}`;
+  if (isLoading) {
+    return <Box padding={1}><Text color="gray">Loading Git diff…</Text></Box>;
+  }
+
+  if (error) {
+    return <Box padding={1}><Text color="red">Failed to get Git diff: {error}</Text></Box>;
   }
 
   if (!diffContent.trim()) {

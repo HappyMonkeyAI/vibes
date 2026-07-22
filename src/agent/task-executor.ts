@@ -18,6 +18,7 @@ import { compact } from './compaction/compaction.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
 import { ReconstructionController } from './context-reconstruction.js';
 import { Governor } from './governor.js';
+import { consumeChatCompletionStream, isAsyncChatCompletionStream } from './stream-adapter.js';
 
 /** Type guard — narrows `BeforeToolCallResult | void | undefined` to `BeforeToolCallResult`. */
 function isBlockResult(v: BeforeToolCallResult | void | undefined): v is BeforeToolCallResult {
@@ -254,6 +255,7 @@ export class TaskExecutor {
     onEvent?: OnEvent,
     getYoloMode: () => boolean = () => config.YOLO_MODE,
     techStack?: string[],
+    executionContext?: { runId?: string; missionId?: string; attempt?: number },
   ): Promise<Task> {
     if (this.hooks?.reset) {
       this.hooks.reset(task);
@@ -262,12 +264,17 @@ export class TaskExecutor {
 
     // Trace: initialise recorder for this run
     const { createTraceRecorder } = await import('./trace.js') as typeof import('./trace.js');
-    const trace = createTraceRecorder(task.id, 'session');
+    const trace = createTraceRecorder(task.id, 'session', {
+      workspaceRoot,
+      runId: executionContext?.runId,
+      missionId: executionContext?.missionId,
+      attempt: executionContext?.attempt ?? task.attemptCount ?? 1,
+    });
 
     /** Emit to both the live TUI and the persistent trace file. */
     const emit = (evt: ExecutionEvent) => {
       onEvent?.(evt);
-      trace.event(evt).catch(() => {});
+      void trace.event(evt);
     };
 
     let memoriesSection = '';
@@ -483,6 +490,7 @@ ${memoriesSection}`;
           model: taskModel,
           messages: apiMessages,
           temperature: isYoloNow ? 0.9 : 0.7,
+          ...(config.ENABLE_STREAMING ? { stream: true } : {}),
         };
 
         if (config.ENABLE_NATIVE_TOOLS !== false) {
@@ -494,7 +502,15 @@ ${memoriesSection}`;
 
         const response = await getOllamaClient(isReviewerModel ? 'reviewer' : 'main').chat.completions.create(requestOptions);
 
-        let message = response.choices[0].message;
+        let message: any;
+        if (isAsyncChatCompletionStream(response)) {
+          message = await consumeChatCompletionStream(response, delta => {
+            if (delta.kind === 'thinking') emit({ type: 'thinking_delta', content: delta.content });
+            if (delta.kind === 'content') emit({ type: 'output_delta', content: delta.content });
+          });
+        } else {
+          message = response.choices[0].message;
+        }
         logObject('Agent Step Response', message);
 
         // ── Reasoning extraction + strip ───────────────────────────

@@ -18,6 +18,7 @@ export interface ReviewResult {
   approved: boolean;
   issues: ReviewIssue[];
   feedback?: string;
+  unverified?: boolean;
 }
 
 export class Reviewer {
@@ -113,8 +114,13 @@ ${diffContent}
 
       return result;
     } catch (error: any) {
-      log(`Reviewer model failed: ${error.message}. Defaulting to approval.`, 'ERROR');
-      return { approved: true, issues: [], feedback: 'LGTM (Reviewer failed, defaulting to approval)' };
+      log(`Reviewer model failed: ${error.message}. Marking review unverified.`, 'ERROR');
+      return {
+        approved: false,
+        issues: [],
+        unverified: true,
+        feedback: `Reviewer unavailable; completion is unverified: ${error.message}`,
+      };
     }
   }
 

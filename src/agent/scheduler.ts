@@ -12,6 +12,7 @@ import { promisify } from 'util';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { describeDependencyDeadlock } from './scheduler-deps.js';
+import { RunRegistry } from './run-registry.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -26,6 +27,7 @@ export class Scheduler {
 
   /** Read-only public accessor — use-mission.ts needs the current mission state during event flush. */
   get mission(): Mission { return this._mission; }
+  get runs(): ReturnType<RunRegistry['list']> { return this.runRegistry.list(); }
   private executor: TaskExecutor;
   private onEvent?: OnEvent;
   private runningTasks: Set<string> = new Set();
@@ -33,6 +35,8 @@ export class Scheduler {
   private failedTasks: Set<string> = new Set();
   private taskMap: Map<string, Task> = new Map();
   private interventionManager = new InterventionManager();
+  private runRegistry: RunRegistry;
+  private persistState?: (mission: Mission) => Promise<void> | void;
 
   // Pending intervention: resolve callback waiting for user input
   private interventionResolve: ((res: InterventionResolution) => void) | null = null;
@@ -44,11 +48,21 @@ export class Scheduler {
   private static readonly TRIAGE_WALL_CLOCK_MS = 30000;
   private lastEmittedTriageState: string = '';
 
-  constructor(mission: Mission, executor: TaskExecutor, onEvent?: OnEvent, getYoloMode: () => boolean = () => config.YOLO_MODE) {
+  constructor(
+    mission: Mission,
+    executor: TaskExecutor,
+    onEvent?: OnEvent,
+    getYoloMode: () => boolean = () => config.YOLO_MODE,
+    persistState?: (mission: Mission) => Promise<void> | void,
+  ) {
     this._mission = mission;
     this.executor = executor;
     this.onEvent = onEvent;
     this.getYoloMode = getYoloMode;
+    this.persistState = persistState;
+    this.runRegistry = new RunRegistry({
+      persistPath: join(mission.workspace_root, '.vibes', 'runs', `${mission.id}.json`),
+    });
     this.rebuildTaskMap();
   }
 
@@ -222,21 +236,47 @@ export class Scheduler {
     this.runningTasks.add(task.id);
     task.status = 'in_progress';
     task.attemptCount = (task.attemptCount || 0) + 1;
+    const runId = `${this._mission.id}:${task.id}:${task.attemptCount}`;
+    this.runRegistry.register({
+      runId,
+      missionId: this._mission.id,
+      taskId: task.id,
+      title: task.title,
+      attempt: task.attemptCount,
+      transcriptPath: join(this._mission.workspace_root, '.vibes', 'traces', `${task.id}.jsonl`),
+    });
+    this.runRegistry.start(runId, `worker:${task.id}`);
+    await this.runRegistry.save();
     this.failedTasks.delete(task.id);
     if (this.triageAgent) this.triageAgent.currentTaskId = task.id;
 
     this.onEvent?.({ type: 'task_started', taskId: task.id, title: task.title });
+    await this.persistState?.(this._mission);
 
     try {
       const stackLine = this._mission.tech_stack && this._mission.tech_stack.length > 0
         ? `\nTech Stack: ${this._mission.tech_stack.join(', ')}`
         : '';
       const missionContext = `Mission: ${this._mission.title}\nDescription: ${this._mission.description}${stackLine}`;
-      const updatedTask = await this.executor.executeTask(task, missionContext, this._mission.workspace_root, this.onEvent, this.getYoloMode, this._mission.tech_stack);
+      const updatedTask = await this.executor.executeTask(
+        task,
+        missionContext,
+        this._mission.workspace_root,
+        this.onEvent,
+        this.getYoloMode,
+        this._mission.tech_stack,
+        {
+          runId,
+          missionId: this._mission.id,
+          attempt: task.attemptCount ?? 1,
+        },
+      );
 
       this.updateTaskInMission(updatedTask);
 
       if (updatedTask.status === 'done') {
+        this.runRegistry.complete(runId);
+        await this.runRegistry.save();
         // Optional Review Step — only for code tasks
         if (config.ENABLE_REVIEWER && updatedTask.type === 'code') {
           const { Reviewer } = await import('./reviewer.js');
@@ -255,6 +295,7 @@ export class Scheduler {
 
             this.completedTasks.add(task.id);
             this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
+            await this.persistState?.(this._mission);
             await this.runTriageAnalysis();
           } else {
             log(`Task REJECTED by reviewer: ${updatedTask.title}. Feedback: ${review.feedback}`, 'WARN');
@@ -270,6 +311,7 @@ export class Scheduler {
               this.completedTasks.delete(task.id);
               this.taskMap.set(task.id, updatedTask);
               this.runningTasks.delete(task.id);
+              await this.persistState?.(this._mission);
               return;
             }
             // Max rejections or no attempt count: escalate to user
@@ -289,16 +331,23 @@ export class Scheduler {
 
           this.completedTasks.add(task.id);
           this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
+          await this.persistState?.(this._mission);
           await this.runTriageAnalysis();
         }
       } else {
+        this.runRegistry.fail(runId, updatedTask.error || 'Task execution failed');
+        await this.runRegistry.save();
         await this.handleTaskFailure(updatedTask);
+        await this.persistState?.(this._mission);
       }
     } catch (error: any) {
+      this.runRegistry.fail(runId, error.message);
+      await this.runRegistry.save();
       task.status = 'failed';
       task.error = error.message;
       task.userGuidance = undefined;
       await this.handleTaskFailure(task);
+      await this.persistState?.(this._mission);
     } finally {
       this.runningTasks.delete(task.id);
     }
@@ -339,6 +388,7 @@ export class Scheduler {
       this._mission.status = 'failed';
       this.failedTasks.add(task.id);
       this.markDependentsFailed(task.id);
+      await this.persistState?.(this._mission);
       return;
     }
 
@@ -349,6 +399,7 @@ export class Scheduler {
       this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
       this.updateTaskInMission(task);
       this._mission.status = 'executing';
+      await this.persistState?.(this._mission);
       return;
     }
 
@@ -393,6 +444,7 @@ export class Scheduler {
 
     this.updateTaskInMission(task);
     this._mission.status = 'executing';
+    await this.persistState?.(this._mission);
 
     // Notify the TUI that steps changed so the footer can update
     this.onEvent?.({ type: 'steps_updated', taskId: task.id, extraSteps: task.extraSteps });
