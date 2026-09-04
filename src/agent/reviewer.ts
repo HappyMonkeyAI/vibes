@@ -21,22 +21,54 @@ export interface ReviewResult {
   unverified?: boolean;
 }
 
-export class Reviewer {
-  /**
-   * Performs a code review on the git diff of modified files using the reviewer model.
-   */
-  async reviewTask(task: Task, mission: Mission, workspaceRoot: string): Promise<ReviewResult> {
-    log(`Reviewing task via git diff: ${task.title}`, 'INFO');
-    const modelSpecificPrompt = getModelSpecificPrompt(config.REVIEWER_MODEL, 'reviewer');
+export function validateReviewerModelSeparation(
+  executorModel: string,
+  reviewerModel: string,
+): { independent: boolean; reason?: string } {
+  const executor = executorModel.trim().toLowerCase();
+  const reviewer = reviewerModel.trim().toLowerCase();
+  if (!executor || !reviewer) {
+    return { independent: false, reason: 'Executor and reviewer model identities are required' };
+  }
+  if (executor === reviewer) {
+    return { independent: false, reason: 'Executor and reviewer resolve to the same model' };
+  }
+  return { independent: true };
+}
 
-    const diffContent = this.getGitDiffForTask(workspaceRoot, task.files);
-    if (!diffContent) {
-      log(`No git diff detected for task files in ${task.title}. Defaulting to approval.`, 'INFO');
-      return { approved: true, issues: [] };
-    }
+export function buildOwnerAdversaryPrompt(
+  mission: Pick<Mission, 'title' | 'description'>,
+  tasks: Array<Pick<Task, 'title' | 'acceptance_criteria'>>,
+  diffContent: string,
+): { systemPrompt: string; userPrompt: string } {
+  return {
+    systemPrompt: `You are an independent Owner-as-Adversary reviewer. Review the entire mission, not an individual leaf task. Derive checks from the original request and all acceptance criteria. Look especially for missing real entrypoint wiring, dead code, omitted capabilities, invalid/empty/error paths, and integration regressions. Do not trust Worker summaries or task status as evidence. Output ONLY a JSON object with approved:boolean and issues:[{file,line,comment,severity,suggestion}].`,
+    userPrompt: [
+      `Mission: ${mission.title}`,
+      'Original request:',
+      mission.description,
+      '',
+      'Leaf-task acceptance criteria (context only):',
+      tasks.map(task => `- ${task.title}: ${task.acceptance_criteria.join('; ')}`).join('\\n'),
+      '',
+      'Mission diff:',
+      '```diff',
+      diffContent,
+      '```',
+    ].join('\\n'),
+  };
+}
 
-    const systemPrompt = `You are a Senior Software Engineer performing a code review.
-Review the task completion based on the description, acceptance criteria, and the git diff of the changes.
+export function buildReviewerPrompts(
+  task: Pick<Task, 'title' | 'description' | 'acceptance_criteria' | 'output'>,
+  mission: Pick<Mission, 'title'>,
+  diffContent: string,
+  modelSpecificPrompt: string,
+): { systemPrompt: string; userPrompt: string } {
+  const systemPrompt = `You are a Senior Software Engineer performing a code review.
+Review the task completion based on the task description, task acceptance criteria, and git diff of the changes.
+This is a task-scoped review: only reject issues that violate this task's own acceptance criteria or introduce a concrete defect in the changed files.
+Do not require mission-wide integration, sibling-task behavior, or future work unless it is explicitly listed in this task's acceptance criteria.
 Output ONLY a JSON object matching the schema below.
 
 Structure:
@@ -54,16 +86,18 @@ Structure:
 }
 
 Constraints:
-1. If the changes are correct and fulfill all acceptance criteria without bugs, style issues, resource leaks, or security vulnerabilities, set "approved": true and "issues": [].
-2. Focus on code quality checks (e.g. null pointer exceptions, unclosed resources/file descriptors, thread safety, and type errors).
-3. Pinpoint exact file names and line numbers of the issue.
-4. Output raw JSON ONLY. Do not write text before or after the JSON.
+1. If the changes are correct and fulfill all task acceptance criteria without bugs, style issues, resource leaks, or security vulnerabilities, set "approved": true and "issues": [].
+2. Do not turn an omitted integration requirement into a rejection; report it only if this task explicitly owns it.
+3. Focus on code quality checks (e.g. null pointer exceptions, unclosed resources/file descriptors, thread safety, and type errors).
+4. Pinpoint exact file names and line numbers of the issue.
+5. Output raw JSON ONLY. Do not write text before or after the JSON.
 ${modelSpecificPrompt}`;
 
-    const userPrompt = `Mission: ${mission.title}
-Task: ${task.title}
-Description: ${task.description}
-Acceptance Criteria:
+  const userPrompt = `Mission context (informational only): ${mission.title}
+Task-scoped review boundary: ${task.title}
+Description:
+${task.description}
+Acceptance Criteria owned by this task:
 ${task.acceptance_criteria.map(c => `- ${c}`).join('\n')}
 
 Task Output Summary:
@@ -73,6 +107,25 @@ Git Diff of Changes:
 \`\`\`diff
 ${diffContent}
 \`\`\``;
+
+  return { systemPrompt, userPrompt };
+}
+
+export class Reviewer {
+  /**
+   * Performs a code review on the git diff of modified files using the reviewer model.
+   */
+  async reviewTask(task: Task, mission: Mission, workspaceRoot: string): Promise<ReviewResult> {
+    log(`Reviewing task via git diff: ${task.title}`, 'INFO');
+    const modelSpecificPrompt = getModelSpecificPrompt(config.REVIEWER_MODEL, 'reviewer');
+
+    const diffContent = this.getGitDiffForTask(workspaceRoot, task.files);
+    if (!diffContent) {
+      log(`No git diff detected for task files in ${task.title}. Defaulting to approval.`, 'INFO');
+      return { approved: true, issues: [] };
+    }
+
+    const { systemPrompt, userPrompt } = buildReviewerPrompts(task, mission, diffContent, modelSpecificPrompt);
 
     try {
       const response = await getOllamaClient('reviewer').chat.completions.create({
@@ -121,6 +174,30 @@ ${diffContent}
         unverified: true,
         feedback: `Reviewer unavailable; completion is unverified: ${error.message}`,
       };
+    }
+  }
+
+  async reviewMission(mission: Mission, workspaceRoot: string): Promise<ReviewResult> {
+    const tasks = mission.milestones.flatMap(milestone => milestone.tasks);
+    const files = [...new Set(tasks.flatMap(task => task.files))];
+    const diffContent = this.getGitDiffForTask(workspaceRoot, files);
+    const { systemPrompt, userPrompt } = buildOwnerAdversaryPrompt(mission, tasks, diffContent);
+
+    try {
+      const response = await getOllamaClient('reviewer').chat.completions.create({
+        model: config.REVIEWER_MODEL,
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        temperature: 0.1,
+      });
+      const message = response.choices[0]?.message as any;
+      const raw = extractJsonContent(message?.content || message?.reasoning_content || '');
+      const parsed = JSON.parse(raw) as ReviewResult;
+      if (typeof parsed.approved !== 'boolean' || !Array.isArray(parsed.issues)) {
+        throw new Error('Owner review returned an invalid result shape');
+      }
+      return parsed;
+    } catch (error: any) {
+      return { approved: false, issues: [], unverified: true, feedback: `Owner review unavailable; completion is unverified: ${error.message}` };
     }
   }
 

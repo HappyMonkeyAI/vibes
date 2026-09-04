@@ -11,9 +11,14 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { describeDependencyDeadlock } from './scheduler-deps.js';
+import { describeDependencyDeadlock, getExecutionConcurrency } from './scheduler-deps.js';
 import { RunRegistry } from './run-registry.js';
 import { traceFilePath } from './trace.js';
+import { createContextPack, createEvidenceHandoff } from './protocol-contracts.js';
+import { evaluateMissionCompletion } from './mission-integrator.js';
+import { Reviewer, validateReviewerModelSeparation } from './reviewer.js';
+import { getSmallModelRuntimeProfile } from './model-prompts.js';
+import { createTaskWorktree, isRepositoryClean, mergeDeclaredTaskFiles, removeTaskWorktree, type TaskWorktree } from './worktree-manager.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -205,7 +210,9 @@ export class Scheduler {
         break;
       }
 
-      const availableSlots = config.MAX_CONCURRENT_TASKS - this.runningTasks.size;
+      const profile = getSmallModelRuntimeProfile(config.OLLAMA_MODEL, config.SMALL_MODEL_PROFILE);
+      const concurrency = getExecutionConcurrency(nextTasks, profile?.maxConcurrentTasks ?? config.MAX_CONCURRENT_TASKS, config.ENABLE_REVIEWER);
+      const availableSlots = concurrency - this.runningTasks.size;
       const tasksToStart = nextTasks.slice(0, availableSlots);
 
       if (tasksToStart.length > 0) {
@@ -238,7 +245,28 @@ export class Scheduler {
 
     const terminalStatus = this._mission.status as Mission['status'];
     if (terminalStatus === 'executing' || terminalStatus === 'awaiting_intervention') {
-      this._mission.status = this.failedTasks.size > 0 ? 'failed' : 'completed';
+      if (this.failedTasks.size === 0 && config.ENABLE_ADVERSARIAL_AUDIT) {
+        log('Running independent Owner-as-Adversary mission review...', 'INFO');
+        const modelRoles = validateReviewerModelSeparation(config.OLLAMA_MODEL, config.REVIEWER_MODEL);
+        if (!modelRoles.independent) {
+          const reason = modelRoles.reason ?? 'Reviewer model is not independent';
+          log(reason, 'ERROR');
+          this._mission.ownerReview = { approved: false, issues: [], feedback: reason };
+        } else {
+          this._mission.ownerReview = await new Reviewer().reviewMission(this._mission, this._mission.workspace_root);
+        }
+        await this.persistState?.(this._mission);
+      }
+      const completion = this.failedTasks.size > 0
+        ? { approved: false, reasons: ['One or more tasks failed'] }
+        : evaluateMissionCompletion(this._mission);
+      this._mission.status = completion.approved ? 'completed' : 'failed';
+
+      if (!completion.approved) {
+        const reason = `Mission completion gate rejected success: ${completion.reasons.join('; ')}`;
+        log(reason, 'ERROR');
+        this.onEvent?.({ type: 'task_failed', taskId: '', title: 'Mission Completion Gate', error: reason });
+      }
       
       // Memento Pattern: Persist mission summary into long-term memory
       if (this._mission.status === 'completed') {
@@ -335,11 +363,27 @@ export class Scheduler {
     this.onEvent?.({ type: 'task_started', taskId: task.id, title: task.title });
     await this.persistState?.(this._mission);
 
+    let taskWorktree: TaskWorktree | undefined;
     try {
+      let taskWorkspace = this._mission.workspace_root;
+      if (config.USE_ISOLATED_WORKTREES) {
+        if (await isRepositoryClean(this._mission.workspace_root)) {
+          taskWorktree = await createTaskWorktree({ repo: this._mission.workspace_root, taskId: task.id });
+          taskWorkspace = taskWorktree.path;
+          log(`Using isolated worktree ${taskWorkspace} for ${task.title}`, 'INFO');
+        } else {
+          log(`Skipping isolated worktree for ${task.title}: repository has pre-existing changes`, 'WARN');
+        }
+      }
       const stackLine = this._mission.tech_stack && this._mission.tech_stack.length > 0
         ? `\nTech Stack: ${this._mission.tech_stack.join(', ')}`
         : '';
       const missionContext = `Mission: ${this._mission.title}\nDescription: ${this._mission.description}${stackLine}`;
+      const contextPack = createContextPack(this._mission, task, {
+        verifyCommands: ['npm run build', 'npm test'],
+        constraints: ['no push', 'no drive-by refactor', 'stay within owned files unless required for integration'],
+      });
+      const workerContext = `${missionContext}\n\nWorker Context Pack:\n${JSON.stringify(contextPack, null, 2)}`;
       const trackRunProgress: OnEvent = (event) => {
         if (event.type === 'tool_call') {
           this.runRegistry.tryUpdate(runId, { currentTool: event.tool });
@@ -354,8 +398,8 @@ export class Scheduler {
 
       const updatedTask = await this.executor.executeTask(
         task,
-        missionContext,
-        this._mission.workspace_root,
+        workerContext,
+        taskWorkspace,
         trackRunProgress,
         this.getYoloMode,
         this._mission.tech_stack,
@@ -365,6 +409,15 @@ export class Scheduler {
           attempt,
         },
       );
+
+      if (taskWorktree) {
+        await mergeDeclaredTaskFiles({
+          repo: this._mission.workspace_root,
+          taskId: task.id,
+          files: task.files,
+        });
+        taskWorktree = undefined;
+      }
 
       this.updateTaskInMission(updatedTask);
 
@@ -398,6 +451,10 @@ export class Scheduler {
             // Verification phase — catches orphaned CSS, broken imports, syntax errors, and build failures
             if (!await this.verifyTask(task, updatedTask)) {
               await this.finishRun(runId, 'failed', updatedTask.error || 'Verification failed');
+              return;
+            }
+            if (!await this.attachEvidenceHandoff(updatedTask)) {
+              await this.finishRun(runId, 'failed', updatedTask.error || 'Evidence handoff failed');
               return;
             }
 
@@ -439,6 +496,10 @@ export class Scheduler {
             await this.finishRun(runId, 'failed', updatedTask.error || 'Verification failed');
             return;
           }
+          if (!await this.attachEvidenceHandoff(updatedTask)) {
+            await this.finishRun(runId, 'failed', updatedTask.error || 'Evidence handoff failed');
+            return;
+          }
 
           await this.finishRun(runId, 'completed');
           this.completedTasks.add(task.id);
@@ -452,6 +513,13 @@ export class Scheduler {
         await this.persistState?.(this._mission);
       }
     } catch (error: any) {
+      if (taskWorktree) {
+        try {
+          await removeTaskWorktree(this._mission.workspace_root, taskWorktree.taskId);
+        } catch (cleanupError: any) {
+          log(`Could not clean up isolated worktree ${taskWorktree.path}: ${cleanupError.message}`, 'ERROR');
+        }
+      }
       await this.finishRun(runId, 'failed', error.message);
       task.status = 'failed';
       task.error = error.message;
@@ -534,30 +602,32 @@ export class Scheduler {
       }
     }
 
+    const retryTask = this.taskMap.get(targetTaskId) ?? task;
+
     if (resolution.action === 'reply' && resolution.message) {
-      task.userGuidance = resolution.message;
+      retryTask.userGuidance = resolution.message;
 
       // Memento Pattern: Save user guidance as long-term preference
-      getMemoryService().addUserPreference(`Guidance on task "${task.title}": ${resolution.message}`).catch(e => log(`Failed to save memory: ${e}`, 'DEBUG'));
+      getMemoryService().addUserPreference(`Guidance on task "${retryTask.title}": ${resolution.message}`).catch(e => log(`Failed to save memory: ${e}`, 'DEBUG'));
 
       // Smart step parsing
       let bonusSteps = 10;
       const match = resolution.message.match(/(?:add|increase|give|allow)\s+(\d+)\s+steps?/i);
       if (match) bonusSteps = parseInt(match[1], 10);
-      task.extraSteps = (task.extraSteps || 0) + bonusSteps;
+      retryTask.extraSteps = (retryTask.extraSteps || 0) + bonusSteps;
 
-      log(`User guidance set: "${task.userGuidance}" | extra steps: ${task.extraSteps}`, 'INFO');
+      log(`User guidance set: "${retryTask.userGuidance}" | extra steps: ${retryTask.extraSteps}`, 'INFO');
     } else {
       // plain retry — still grant extra steps
-      task.extraSteps = (task.extraSteps || 0) + 10;
+      retryTask.extraSteps = (retryTask.extraSteps || 0) + 10;
     }
 
-    this.updateTaskInMission(task);
+    this.updateTaskInMission(retryTask);
     this._mission.status = 'executing';
     await this.persistState?.(this._mission);
 
     // Notify the TUI that steps changed so the footer can update
-    this.onEvent?.({ type: 'steps_updated', taskId: task.id, extraSteps: task.extraSteps });
+    this.onEvent?.({ type: 'steps_updated', taskId: retryTask.id, extraSteps: retryTask.extraSteps || 0 });
   }
 
   private async verifyTask(task: Task, updatedTask: Task): Promise<boolean> {
@@ -604,6 +674,53 @@ export class Scheduler {
     }
 
     return true;
+  }
+
+  private async attachEvidenceHandoff(task: Task): Promise<boolean> {
+    if (task.evidenceHandoff?.status === 'done') return true;
+    const workspace = this._mission.workspace_root;
+    const isIntegration = /integration|final verification/i.test(`${task.title} ${task.description}`);
+    let scripts: Record<string, unknown> = {};
+    try {
+      scripts = JSON.parse(readFileSync(join(workspace, 'package.json'), 'utf8')).scripts ?? {};
+    } catch { /* Non-package workspaces use the Git fallback below. */ }
+    const commands: string[][] = [];
+    if (scripts.build) commands.push(['run', 'build']);
+    if (isIntegration && scripts.test) commands.push(['test']);
+    if (commands.length === 0) commands.push(['--version']);
+    const commandsAndResults: Array<{ command: string; exitCode: number; summary: string }> = [];
+    for (const args of commands) {
+      const command = `npm ${args.join(' ')}`;
+      try {
+        const executable = args[0] === 'diff' ? 'git' : 'npm';
+        const executableArgs = args[0] === 'diff' ? args : args;
+        const result = await execFileAsync(executable, executableArgs, { cwd: workspace });
+        commandsAndResults.push({ command: executable === 'git' ? `git ${args.join(' ')}` : command, exitCode: 0, summary: `${result.stdout}${result.stderr}`.trim().slice(-2000) || 'passed' });
+      } catch (error: any) {
+        commandsAndResults.push({ command, exitCode: typeof error.code === 'number' ? error.code : 1, summary: `${error.stdout ?? ''}${error.stderr ?? ''}`.trim().slice(-2000) || error.message });
+      }
+    }
+    try {
+      const [head, branch, status] = await Promise.all([
+        execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: workspace }),
+        execFileAsync('git', ['branch', '--show-current'], { cwd: workspace }),
+        execFileAsync('git', ['status', '--short'], { cwd: workspace }),
+      ]);
+      const changedPaths = status.stdout.split('\n').filter(Boolean).map(line => line.slice(3).trim());
+      task.evidenceHandoff = createEvidenceHandoff(
+        { id: task.id, status: 'done', files: changedPaths },
+        { worktree: workspace, branch: branch.stdout.trim() || 'detached', baseline: head.stdout.trim(), commandsAndResults, verificationLayers: isIntegration ? ['integration'] : ['unit'], status: commandsAndResults.every(result => result.exitCode === 0) ? 'done' : 'blocked' },
+      );
+      return task.evidenceHandoff.status === 'done';
+    } catch (error: any) {
+      task.evidenceHandoff = createEvidenceHandoff(
+        { id: task.id, status: 'done', files: task.files ?? [] },
+        { worktree: workspace, branch: 'no-git-workspace', baseline: 'no-git-baseline', commandsAndResults, verificationLayers: isIntegration ? ['integration'] : ['unit'], status: commandsAndResults.every(result => result.exitCode === 0) ? 'done' : 'blocked' },
+      );
+      if (task.evidenceHandoff.status === 'done') return true;
+      task.error = `Evidence verification failed and Git state is unavailable: ${error.message}`;
+      return false;
+    }
   }
 
   private markDependentsFailed(failedTaskId: string) {

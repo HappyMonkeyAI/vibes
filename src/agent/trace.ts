@@ -17,6 +17,8 @@ export interface TraceRecorderOptions {
 
 export interface TraceRecorder {
   event(evt: ExecutionEvent): Promise<void>;
+  /** Resolves only after every queued event has reached the filesystem. */
+  flush(): Promise<void>;
   getErrorCount(): number;
   path: string;
 }
@@ -61,6 +63,7 @@ export function createTraceRecorder(
   return {
     path: traceFile,
     getErrorCount: () => errorCount,
+    flush: () => writeQueue,
     event(evt: ExecutionEvent): Promise<void> {
       const envelope: ExecutionEnvelope = createExecutionEnvelope(evt, {
         runId,

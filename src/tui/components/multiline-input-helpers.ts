@@ -35,7 +35,11 @@ const SHIFT_MODIFIER_SEQUENCES = [
 ];
 
 export function sanitizePastedText(text: string): string {
-  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  return text
+    .replaceAll(BRACKETED_PASTE_START, '')
+    .replaceAll(BRACKETED_PASTE_END, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
 }
 
 export function isModifiedNewlineSequence(input: string): boolean {

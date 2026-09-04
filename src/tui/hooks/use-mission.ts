@@ -165,7 +165,7 @@ export const useMission = () => {
         spawnSync('git', ['add', '-A'], { cwd: plan.workspace_root });
         spawnSync(
           'git',
-          ['commit', '-m', `vibes: initial workspace snapshot ${plan.id}`],
+          ['commit', '--allow-empty', '-m', `vibes: initial workspace snapshot ${plan.id}`],
           { cwd: plan.workspace_root },
         );
       } else {

@@ -68,3 +68,20 @@ test('restored runs left mid-flight by a dead process are marked stale', () => {
   assert.equal(registry.get('b')?.status, 'stale');
   assert.equal(registry.get('c')?.status, 'completed');
 });
+
+test('RunRegistry serializes concurrent saves using the same persistence path', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vibes-runs-concurrent-'));
+  const file = path.join(root, 'runs.json');
+  const registry = new RunRegistry({ persistPath: file });
+
+  for (let i = 0; i < 8; i += 1) {
+    registry.register({ runId: `run-${i}`, missionId: 'm', taskId: `t-${i}`, title: `Task ${i}` });
+  }
+
+  await Promise.all(Array.from({ length: 20 }, () => registry.save()));
+
+  const saved = JSON.parse(await fs.readFile(file, 'utf8'));
+  assert.equal(saved.length, 8);
+  assert.equal(await fs.stat(`${file}.tmp`).then(() => true).catch(() => false), false);
+  await fs.rm(root, { recursive: true, force: true });
+});

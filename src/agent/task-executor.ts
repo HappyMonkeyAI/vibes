@@ -15,7 +15,7 @@ import {
   estimateMessagesTokens 
 } from './context-manager.js';
 import { compact } from './compaction/compaction.js';
-import { getModelSpecificPrompt } from './model-prompts.js';
+import { getModelSpecificPrompt, getSmallModelRuntimeProfile } from './model-prompts.js';
 import { ReconstructionController } from './context-reconstruction.js';
 import { Governor } from './governor.js';
 import { consumeChatCompletionStream, isAsyncChatCompletionStream } from './stream-adapter.js';
@@ -283,6 +283,10 @@ export class TaskExecutor {
         void trace.event(evt);
       }
     };
+    const finish = async (result: Task): Promise<Task> => {
+      await trace.flush();
+      return result;
+    };
 
     let memoriesSection = '';
     if (this.memory.isEnabled()) {
@@ -415,18 +419,18 @@ ${memoriesSection}`;
     let hasCalledAnyTool = false;
 
     const governor = new Governor({
-      maxTurns: isYolo ? 9999 : (config.MAX_STEPS + (task.extraSteps || 0)),
+      maxTurns: isYolo ? 9999 : ((getSmallModelRuntimeProfile(resolvedTaskModel, config.SMALL_MODEL_PROFILE)?.maxSteps ?? config.MAX_STEPS) + (task.extraSteps || 0)),
       maxTokens: config.CONTEXT_WINDOW,
       thrashThreshold: 3,
     });
 
     for (let step = 0; ; step++) {
       const isYoloNow = getYoloMode();
-      const currentMax = isYoloNow ? 9999 : (config.MAX_STEPS + (task.extraSteps || 0));
+      const currentMax = isYoloNow ? 9999 : ((getSmallModelRuntimeProfile(resolvedTaskModel, config.SMALL_MODEL_PROFILE)?.maxSteps ?? config.MAX_STEPS) + (task.extraSteps || 0));
 
       if (governor.isTurnLimitExceeded(step)) {
         currentTask = { ...currentTask, status: 'failed', error: 'Max steps exceeded' };
-        return currentTask;
+        return finish(currentTask);
       }
 
       try {
@@ -467,7 +471,7 @@ ${memoriesSection}`;
         
         if (governor.isTokenLimitExceeded(stats.used)) {
           currentTask = { ...currentTask, status: 'failed', error: `Context token limit exceeded: ${stats.used}/${config.CONTEXT_WINDOW} tokens` };
-          return currentTask;
+          return finish(currentTask);
         }
 
         onEvent?.({ type: 'context_update', used: stats.used, total: stats.total, percentage: stats.percentage });
@@ -578,7 +582,7 @@ ${memoriesSection}`;
           
           if (blankCount >= 3) {
             currentTask = { ...currentTask, status: 'failed', error: 'Agent stuck in blank response loop (3+ empty turns)' };
-            return currentTask;
+            return finish(currentTask);
           }
 
           // Inject a steer message to nudge the model
@@ -601,7 +605,7 @@ ${memoriesSection}`;
           if (stop) {
             log('shouldStopAfterTurn hook stopped after text answer', 'INFO');
             currentTask = { ...currentTask, status: 'done', output: message.content };
-            return currentTask;
+            return finish(currentTask);
           }
         }
 
@@ -644,14 +648,14 @@ ${memoriesSection}`;
               }
             }
 
-            onEvent?.({
+            emit({
               type: 'tool_call',
               tool: toolCall.function.name,
               args: parsed ? args : toolCall.function.arguments,
             });
 
             if (!parsed) {
-              onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
+              emit({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
               logObject(`Tool Parse Error [${toolCall.function.name}]`, preResult);
               messages.push({
                 role: 'tool',
@@ -664,7 +668,7 @@ ${memoriesSection}`;
             const tool = minionTools.find(t => t.name === toolCall.function.name);
             if (!tool) {
               preResult = { success: false, error: `Tool ${toolCall.function.name} not found` };
-              onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
+              emit({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
               messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(preResult) });
               continue;
             }
@@ -683,7 +687,7 @@ ${memoriesSection}`;
               } else {
                 log(`Tool arg parse failed [${toolCall.function.name}]: ${parseResult.error.message}`, 'WARN');
                 preResult = { success: false, error: `Invalid tool arguments: ${parseResult.error.message}` };
-                onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
+                emit({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
                 messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(preResult) });
                 continue;
               }
@@ -762,7 +766,7 @@ ${memoriesSection}`;
                 const result  = results as ToolResult[];
 
                 const r = result[i];
-                onEvent?.({ type: 'tool_result', tool: entry.toolCall.function.name, result: r });
+                emit({ type: 'tool_result', tool: entry.toolCall.function.name, result: r });
                 logObject(`Tool Result [${entry.toolCall.function.name}] (parallel, ${elapsedMs} ms total)`, r);
                 const resultStr = this.formatToolResult(r);
                 const truncatedResult = truncateToolResult(resultStr, entry.toolCall.function.name);
@@ -777,7 +781,7 @@ ${memoriesSection}`;
               for (const entry of preflight) {
                 const res = await entry.run();
                 turnResults.push(res);
-                onEvent?.({ type: 'tool_result', tool: entry.toolCall.function.name, result: res });
+                emit({ type: 'tool_result', tool: entry.toolCall.function.name, result: res });
                 logObject(`Tool Result [${entry.toolCall.function.name}]`, res);
                 const resultStr = this.formatToolResult(res);
                 const truncatedResult = truncateToolResult(resultStr, entry.toolCall.function.name);
@@ -795,7 +799,7 @@ ${memoriesSection}`;
             if (circuitBreakerTripped || stop) {
               log('Governor or hook stopped execution after tool results (circuit breaker / thrash detection)', 'WARN');
               currentTask = { ...currentTask, status: 'failed', error: 'Agent loop stopped by safety circuit breaker (potential infinite loop)' };
-              return currentTask;
+              return finish(currentTask);
             }
           }
         } else if (message.content) {
@@ -811,18 +815,18 @@ ${memoriesSection}`;
           log(`Task output: ${message.content.slice(0, 100)}...`, 'INFO');
           emit({ type: 'output', content: message.content });
           currentTask = { ...currentTask, status: 'done', output: message.content };
-          return currentTask;
+          return finish(currentTask);
         }
       } catch (error: any) {
         log(`Task error: ${error.message}`, 'ERROR');
-        onEvent?.({ type: 'error', message: error.message });
+        emit({ type: 'error', message: error.message });
         currentTask = { ...currentTask, status: 'failed', error: error.message };
-        return currentTask;
+        return finish(currentTask);
       }
     }
 
     currentTask = { ...currentTask, status: 'failed', error: 'Max steps exceeded' };
-    return currentTask;
+    return finish(currentTask);
   }
 }
 

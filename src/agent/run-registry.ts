@@ -29,6 +29,7 @@ export class RunRegistry {
   private readonly runs = new Map<string, RunRecord>();
   private readonly staleAfterMs: number;
   private readonly persistPath?: string;
+  private saveQueue: Promise<void> = Promise.resolve();
 
   constructor(options: { staleAfterMs?: number; persistPath?: string } = {}) {
     this.staleAfterMs = options.staleAfterMs ?? 5 * 60 * 1000;
@@ -127,12 +128,20 @@ export class RunRegistry {
 
   async save(): Promise<void> {
     if (!this.persistPath) return;
-    const fs = await import('node:fs/promises');
-    const path = await import('node:path');
-    await fs.mkdir(path.dirname(this.persistPath), { recursive: true });
-    const tempPath = `${this.persistPath}.tmp`;
-    await fs.writeFile(tempPath, JSON.stringify(this.list(), null, 2), 'utf8');
-    await fs.rename(tempPath, this.persistPath);
+
+    const saveOperation = this.saveQueue.then(async () => {
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      await fs.mkdir(path.dirname(this.persistPath!), { recursive: true });
+      const tempPath = `${this.persistPath!}.tmp`;
+      await fs.writeFile(tempPath, JSON.stringify(this.list(), null, 2), 'utf8');
+      await fs.rename(tempPath, this.persistPath!);
+    });
+
+    // Keep the queue usable after a failed write while preserving the failure
+    // for the caller that owns this particular save operation.
+    this.saveQueue = saveOperation.catch(() => undefined);
+    await saveOperation;
   }
 
   restore(records: RunRecord[]): void {

@@ -48,7 +48,10 @@ export async function runRepositoryAudit(
     return issues;
   }
 
+  // A newly initialized scratch workspace may not have a baseline commit yet.
+  // History-based checks are advisory and must never fail task verification.
   try {
+    await git(workspaceRoot, ['rev-parse', '--verify', 'HEAD']);
     const status = await git(workspaceRoot, ['diff', '--name-status', 'HEAD']);
     for (const line of status.split('\n').filter(Boolean)) {
       const [change, file] = line.split('\t');

@@ -7,6 +7,7 @@ import { repairJson, extractJsonContent } from './json-repair.js';
 import { getMemoryService } from '../memory/index.js';
 import { detectTechStack } from './tech-stack.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
+import { ensureIntegrationTask } from './mission-integrator.js';
 
 export class MissionPlanner {
   private memory = getMemoryService();
@@ -297,7 +298,7 @@ Constraints:
         })),
       };
 
-      const mission = MissionSchema.parse(planWithIds);
+      const mission = ensureIntegrationTask(MissionSchema.parse(planWithIds));
 
       // Post-plan validation: check that key entities from the original request
       // appear somewhere in the plan. This catches cases where the planner silently

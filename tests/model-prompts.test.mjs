@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   getModelSpecificPrompt,
   isGemma12BModel,
+  isSmallModel,
 } from '../dist/agent/model-prompts.js';
 
 test('detects common Gemma 12B model identifiers', () => {
@@ -36,4 +37,13 @@ test('preserves strict structured-output contracts', () => {
   assert.match(reviewer, /exactly one raw JSON review object/);
   assert.match(triage, /call that tool with schema-valid arguments/);
   assert.match(triage, /exactly one raw JSON object/);
+});
+
+test('detects small coding models and adds bounded execution guidance', () => {
+  assert.equal(isSmallModel('qwythos-9b-claude-mythos-5-1m'), true);
+  assert.equal(isSmallModel('gemma-4-12b'), false);
+  const prompt = getModelSpecificPrompt('qwythos-9b-claude-mythos-5-1m', 'executor');
+  assert.match(prompt, /SMALL MODEL EXECUTION GUIDANCE/);
+  assert.match(prompt, /one tool call at a time/);
+  assert.match(prompt, /Do not claim completion/);
 });

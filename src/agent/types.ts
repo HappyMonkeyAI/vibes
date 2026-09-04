@@ -1,6 +1,7 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { z } from 'zod';
 import { CompletionReceiptSchema } from './completion-receipt.js';
+import { EvidenceHandoffSchema, OwnerAdversaryReviewSchema } from './protocol-contracts.js';
 
 export const TaskStatusSchema = z.enum(['todo', 'in_progress', 'done', 'failed']);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
@@ -42,6 +43,7 @@ export const TaskSchema = z.object({
     suggestion: z.string().optional(),
   })).optional(),
   completionReceipt: CompletionReceiptSchema.optional(),
+  evidenceHandoff: EvidenceHandoffSchema.optional(),
 });
 
 export type Task = z.infer<typeof TaskSchema>;
@@ -64,6 +66,7 @@ export const MissionSchema = z.object({
   status: z.enum(['planning', 'executing', 'completed', 'failed', 'awaiting_intervention']).default('planning'),
   /** Tech stack detected at planning time — e.g. ['typescript', 'react', 'css'] */
   tech_stack: z.array(z.string()).optional(),
+  ownerReview: OwnerAdversaryReviewSchema.optional(),
 });
 
 export type Mission = z.infer<typeof MissionSchema>;

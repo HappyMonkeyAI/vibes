@@ -21,6 +21,13 @@ test('sanitizePastedText converts carriage returns to newlines', () => {
   assert.equal(sanitizePastedText('line1\r\nline2\rline3'), 'line1\nline2\nline3');
 });
 
+test('sanitizePastedText strips bracketed paste markers when terminals leak them', () => {
+  assert.equal(
+    sanitizePastedText('\u001b[200~mission text\u001b[201~'),
+    'mission text',
+  );
+});
+
 test('insertTextAtCursor preserves multiline paste content', () => {
   const result = insertTextAtCursor('', 'alpha\nbeta\ngamma', { line: 0, col: 0 });
   assert.equal(result.value, 'alpha\nbeta\ngamma');

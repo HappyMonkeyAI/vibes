@@ -58,3 +58,18 @@ test('a corrupt record anywhere in the journal is skipped, not fatal', async () 
   assert.deepEqual(result.skippedLines, [2, 4]);
   await fs.rm(workspace, { recursive: true, force: true });
 });
+
+test('trace recorder retains tool lifecycle events for post-run diagnosis', async () => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'vibes-trace-tools-'));
+  const recorder = createTraceRecorder('task-1', 'session', { workspaceRoot: workspace });
+
+  await recorder.event({ type: 'tool_call', tool: 'file_write', args: { path: 'src/App.tsx' } });
+  await recorder.event({ type: 'tool_result', tool: 'file_write', result: { success: true } });
+  await recorder.event({ type: 'error', message: 'verification failed' });
+
+  assert.deepEqual(
+    (await readTraceFile(recorder.path)).map(item => item.event.type),
+    ['tool_call', 'tool_result', 'error'],
+  );
+  await fs.rm(workspace, { recursive: true, force: true });
+});

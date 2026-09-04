@@ -17,6 +17,8 @@ export const ConfigSchema = z.object({
   OLLAMA_API_KEY: z.string().default('ollama'),
   CONTEXT_WINDOW: z.coerce.number().default(32768),
   MAX_STEPS: z.coerce.number().default(25),
+  SMALL_MODEL_PROFILE: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
+  USE_ISOLATED_WORKTREES: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
   THINKING_MODE: z.union([z.boolean(), z.string().transform(v => v === 'enabled')]).default(true),
   MAX_CONCURRENT_TASKS: z.coerce.number().default(1),
   ENABLE_REVIEWER: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(true),
@@ -63,7 +65,16 @@ function loadPersistentConfig(): Partial<Config> {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const content = fs.readFileSync(CONFIG_PATH, 'utf-8');
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      // Prevent invisible TUI control characters from corrupting provider
+      // names/URLs while keeping the persisted config schema unchanged.
+      return Object.fromEntries(
+        Object.entries(parsed).map(([key, value]) => [
+          key,
+          typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, '') : value,
+        ]),
+      );
     }
   } catch (error) {
     console.error('⚠️ Failed to load persistent config:', error);

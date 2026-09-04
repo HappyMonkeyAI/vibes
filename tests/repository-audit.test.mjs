@@ -29,3 +29,11 @@ test('repository audit detects deleted tests and newly added dependencies', asyn
   assert.equal(issues.some(issue => issue.type === 'new_dependency' && issue.message.includes('newlib')), true);
   await fs.rm(root, { recursive: true, force: true });
 });
+
+test('repository audit is a no-op for an initialized repository without HEAD', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vibes-audit-empty-'));
+  git(root, ['init']);
+
+  assert.deepEqual(await runRepositoryAudit(root), []);
+  await fs.rm(root, { recursive: true, force: true });
+});
