@@ -85,7 +85,7 @@ export class GoalJudge {
       }
     }
 
-    const repositoryWarnings = runRepositoryAudit(baseDir)
+    const repositoryWarnings = (await runRepositoryAudit(baseDir))
       .map(issue => `[${issue.type}] ${issue.file}: ${issue.message}`);
     return { approved: true, unmetCriteria: [], auditWarnings: repositoryWarnings };
   }

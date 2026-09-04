@@ -49,6 +49,14 @@ export class SessionService {
         const tempPath = `${sessionPath}.tmp`;
         await fs.writeFile(tempPath, JSON.stringify(data, null, 2), 'utf8');
         await fs.rename(tempPath, sessionPath);
+      } catch (err: any) {
+        log(`Failed to save session ${mission.id}: ${err.message}`, 'ERROR');
+        return;
+      }
+
+      // Indexed separately: the session itself is already durable, so an index
+      // failure must not be reported as a failed session save.
+      try {
         await this.index.upsert({
           id: mission.id,
           title: mission.title,
@@ -58,7 +66,7 @@ export class SessionService {
           workspace: mission.workspace_root,
         });
       } catch (err: any) {
-        log(`Failed to save session ${mission.id}: ${err.message}`, 'ERROR');
+        log(`Session ${mission.id} saved, but updating the session index failed: ${err.message}`, 'WARN');
       }
     }).finally(() => {
       if (this.writeQueues.get(mission.id) === nextWrite) {

@@ -21,6 +21,20 @@ export interface TraceRecorder {
   path: string;
 }
 
+export interface TraceReadResult {
+  envelopes: ExecutionEnvelope[];
+  /** Line numbers (1-based) that could not be parsed and were skipped. */
+  skippedLines: number[];
+}
+
+/**
+ * One trace file per attempt. Sharing a file across attempts would restart
+ * `sequence` at 1 partway through it, so records could not be ordered.
+ */
+export function traceFilePath(workspaceRoot: string, taskId: string, attempt: number): string {
+  return path.join(path.resolve(workspaceRoot), '.vibes', 'traces', `${taskId}.attempt-${attempt}.jsonl`);
+}
+
 /**
  * Creates a trace recorder below the mission workspace.
  * Writes are serialized so concurrent task events retain append order.
@@ -31,8 +45,9 @@ export function createTraceRecorder(
   options: TraceRecorderOptions = {},
 ): TraceRecorder {
   const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
-  const traceDir = path.join(workspaceRoot, '.vibes', 'traces');
-  const traceFile = path.join(traceDir, `${taskId}.jsonl`);
+  const attempt = options.attempt ?? 1;
+  const traceFile = traceFilePath(workspaceRoot, taskId, attempt);
+  const traceDir = path.dirname(traceFile);
   const runId = options.runId ?? taskId;
   const missionId = options.missionId ?? runId;
   let sequence = 0;
@@ -51,7 +66,7 @@ export function createTraceRecorder(
         runId,
         missionId,
         taskId,
-        attempt: options.attempt,
+        attempt,
         sequence: ++sequence,
       });
       const nextWrite = writeQueue.then(async () => {
@@ -66,24 +81,36 @@ export function createTraceRecorder(
   };
 }
 
-/** Read valid envelopes and ignore only an incomplete final JSONL record. */
-export async function readTraceFile(traceFile: string): Promise<ExecutionEnvelope[]> {
+/**
+ * Read every envelope that parses and report the ones that did not. A single
+ * corrupt record in the middle of an append-only journal must not make the whole
+ * run unreplayable — a partially readable trace is the point of the format.
+ */
+export async function readTraceFileDetailed(traceFile: string): Promise<TraceReadResult> {
   let content: string;
   try {
     content = await fs.readFile(traceFile, 'utf8');
   } catch {
-    return [];
+    return { envelopes: [], skippedLines: [] };
   }
 
-  const lines = content.split('\n').filter(Boolean);
   const envelopes: ExecutionEnvelope[] = [];
+  const skippedLines: number[] = [];
+  const lines = content.split('\n');
+
   for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line.trim()) continue;
     try {
-      envelopes.push(JSON.parse(lines[index]) as ExecutionEnvelope);
-    } catch (error) {
-      if (index === lines.length - 1) break;
-      throw error;
+      envelopes.push(JSON.parse(line) as ExecutionEnvelope);
+    } catch {
+      skippedLines.push(index + 1);
     }
   }
-  return envelopes;
+
+  return { envelopes, skippedLines };
+}
+
+export async function readTraceFile(traceFile: string): Promise<ExecutionEnvelope[]> {
+  return (await readTraceFileDetailed(traceFile)).envelopes;
 }

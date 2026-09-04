@@ -56,10 +56,15 @@ export class RunRegistry {
     return { ...run };
   }
 
-  update(runId: string, patch: Pick<RunRecord, 'currentTool' | 'lastOutput' | 'transcriptPath'>): RunRecord {
+  update(runId: string, patch: Partial<Pick<RunRecord, 'currentTool' | 'lastOutput' | 'transcriptPath'>>): RunRecord {
     const run = this.require(runId);
     if (!this.isTerminal(run.status)) Object.assign(run, patch);
     return { ...run };
+  }
+
+  /** Best-effort progress update — a run that has already gone away is not an error. */
+  tryUpdate(runId: string, patch: Partial<Pick<RunRecord, 'currentTool' | 'lastOutput' | 'transcriptPath'>>): void {
+    if (this.runs.has(runId)) this.update(runId, patch);
   }
 
   complete(runId: string): RunRecord {
@@ -82,13 +87,31 @@ export class RunRegistry {
 
   markStale(now = Date.now()): number {
     let count = 0;
+    const stamp = Number.isFinite(now) ? new Date(now).toISOString() : new Date().toISOString();
     for (const run of this.runs.values()) {
       if (run.status !== 'running' || !run.startedAt) continue;
-      if (now - Date.parse(run.startedAt) >= this.staleAfterMs) {
+      const startedAt = Date.parse(run.startedAt);
+      if (Number.isNaN(startedAt) || now - startedAt >= this.staleAfterMs) {
         run.status = 'stale';
-        run.completedAt = new Date(now).toISOString();
+        run.completedAt = stamp;
         count += 1;
       }
+    }
+    return count;
+  }
+
+  /**
+   * Mark every non-terminal run stale regardless of age. Used on restore: a run
+   * still recorded as queued or running belongs to a process that has since died.
+   */
+  markInterrupted(): number {
+    let count = 0;
+    const stamp = new Date().toISOString();
+    for (const run of this.runs.values()) {
+      if (this.isTerminal(run.status)) continue;
+      run.status = 'stale';
+      run.completedAt = stamp;
+      count += 1;
     }
     return count;
   }

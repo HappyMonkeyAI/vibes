@@ -21,7 +21,9 @@ export async function consumeChatCompletionStream(
 ): Promise<AssembledChatMessage> {
   let content = '';
   let reasoning = '';
-  const tools: AssembledChatMessage['tool_calls'] = [];
+  // Keyed by delta index rather than positional: providers may open index 1 before
+  // index 0, and a bare array would leave a hole that callers iterate straight into.
+  const tools = new Map<number, AssembledChatMessage['tool_calls'][number]>();
 
   for await (const chunk of stream) {
     const delta = chunk?.choices?.[0]?.delta;
@@ -40,7 +42,7 @@ export async function consumeChatCompletionStream(
 
     for (const toolDelta of delta.tool_calls ?? []) {
       const index = Number(toolDelta.index ?? 0);
-      const existing = tools[index] ?? {
+      const existing = tools.get(index) ?? {
         id: toolDelta.id ?? `call-${index}`,
         type: 'function' as const,
         function: { name: '', arguments: '' },
@@ -48,7 +50,7 @@ export async function consumeChatCompletionStream(
       if (toolDelta.id) existing.id = toolDelta.id;
       if (toolDelta.function?.name) existing.function.name += toolDelta.function.name;
       if (toolDelta.function?.arguments) existing.function.arguments += toolDelta.function.arguments;
-      tools[index] = existing;
+      tools.set(index, existing);
       onDelta?.({
         kind: 'tool_call',
         index,
@@ -63,7 +65,7 @@ export async function consumeChatCompletionStream(
     role: 'assistant',
     content,
     ...(reasoning ? { reasoning_content: reasoning } : {}),
-    tool_calls: tools,
+    tool_calls: [...tools.entries()].sort(([a], [b]) => a - b).map(([, call]) => call),
   };
 }
 

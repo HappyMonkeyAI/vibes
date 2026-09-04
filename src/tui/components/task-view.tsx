@@ -7,9 +7,25 @@ interface TaskViewProps {
   events: ExecutionEvent[];
   isExecuting: boolean;
   runSummaries?: RunRecord[];
+  /** Coalesced streaming buffers — deltas never enter `events`. */
+  liveThinking?: string;
+  liveOutput?: string;
+  eventBacklog?: number;
 }
 
-export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuting, runSummaries = [] }) => {
+/** Show the trailing edge of a stream: that is where the new tokens land. */
+function tail(text: string, limit: number): string {
+  return text.length > limit ? `…${text.slice(-limit)}` : text;
+}
+
+export const TaskView: React.FC<TaskViewProps> = React.memo(({
+  events,
+  isExecuting,
+  runSummaries = [],
+  liveThinking = '',
+  liveOutput = '',
+  eventBacklog = 0,
+}) => {
   const [dots, setDots] = useState('');
 
   // Heartbeat animation
@@ -32,6 +48,7 @@ export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuti
       <Box paddingBottom={1}>
         <Text bold color="yellow">Live Agent Execution</Text>
         {isExecuting && <Text color="yellow"> {dots}</Text>}
+        {eventBacklog > 0 && <Text color="gray" dimColor> ({eventBacklog} buffered)</Text>}
       </Box>
       {runSummaries.length > 0 && (
         <Box flexDirection="column" paddingBottom={1}>
@@ -49,6 +66,23 @@ export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuti
         </Box>
       )}
       
+      {isExecuting && (liveThinking || liveOutput) && (
+        <Box flexDirection="column" paddingBottom={1}>
+          {liveThinking && (
+            <Box>
+              <Text color="blue" italic>Thinking ▸ </Text>
+              <Text color="gray" dimColor>{tail(liveThinking, 200)}</Text>
+            </Box>
+          )}
+          {liveOutput && (
+            <Box>
+              <Text color="green">Output ▸ </Text>
+              <Text color="green">{tail(liveOutput, 200)}</Text>
+            </Box>
+          )}
+        </Box>
+      )}
+
       <Box flexDirection="column">
         {events.slice(-15).map((event, idx) => {
           switch (event.type) {
@@ -57,13 +91,6 @@ export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuti
                 <Box key={idx} paddingBottom={1}>
                   <Text color="blue" italic>Thinking: </Text>
                   <Text color="gray" dimColor>{event.content.slice(0, 100)}{event.content.length > 100 ? '...' : ''}</Text>
-                </Box>
-              );
-            case 'thinking_delta':
-              return (
-                <Box key={idx}>
-                  <Text color="blue" italic>Thinking ▸ </Text>
-                  <Text color="gray" dimColor>{event.content}</Text>
                 </Box>
               );
             case 'tool_call':
@@ -86,12 +113,6 @@ export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuti
             case 'output':
               return (
                 <Box key={idx} paddingBottom={1} borderStyle="single" borderColor="green" paddingX={1}>
-                  <Text color="green">{event.content}</Text>
-                </Box>
-              );
-            case 'output_delta':
-              return (
-                <Box key={idx}>
                   <Text color="green">{event.content}</Text>
                 </Box>
               );

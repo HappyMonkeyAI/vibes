@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { describeDependencyDeadlock } from './scheduler-deps.js';
 import { RunRegistry } from './run-registry.js';
+import { traceFilePath } from './trace.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -40,6 +41,11 @@ export class Scheduler {
 
   // Pending intervention: resolve callback waiting for user input
   private interventionResolve: ((res: InterventionResolution) => void) | null = null;
+  // Pending tool approval — a separate slot so an approval prompt and a failure
+  // intervention can never overwrite one another's resolver.
+  private approvalResolve: ((approved: boolean) => void) | null = null;
+  private approvalQueue: Promise<void> = Promise.resolve();
+  private approvalsAborted = false;
   private getYoloMode: () => boolean;
 
   triageAgent?: TriageAgent;
@@ -60,10 +66,24 @@ export class Scheduler {
     this.onEvent = onEvent;
     this.getYoloMode = getYoloMode;
     this.persistState = persistState;
-    this.runRegistry = new RunRegistry({
-      persistPath: join(mission.workspace_root, '.vibes', 'runs', `${mission.id}.json`),
-    });
+    const runsPath = join(mission.workspace_root, '.vibes', 'runs', `${mission.id}.json`);
+    this.runRegistry = new RunRegistry({ persistPath: runsPath });
+    this.restoreRunRoster(runsPath);
     this.rebuildTaskMap();
+  }
+
+  /** Recover the previous roster so a resumed mission keeps its earlier attempts. */
+  private restoreRunRoster(runsPath: string) {
+    try {
+      if (!existsSync(runsPath)) return;
+      const records = JSON.parse(readFileSync(runsPath, 'utf8'));
+      if (!Array.isArray(records)) return;
+      this.runRegistry.restore(records);
+      // Anything still marked queued or running belongs to a process that is no longer alive.
+      this.runRegistry.markInterrupted();
+    } catch {
+      // A missing or corrupt roster must not stop a mission from starting.
+    }
   }
 
   private rebuildTaskMap() {
@@ -90,6 +110,67 @@ export class Scheduler {
       this.interventionResolve(resolution);
       this.interventionResolve = null;
     }
+  }
+
+  /**
+   * Suspends the running tool call until the user approves or denies it. This is
+   * the `ask` arm of the approval policy — without it `ask` would be
+   * indistinguishable from `deny` and no mutation could ever proceed.
+   */
+  public requestToolApproval(request: { tool: string; reason: string; preview: string }): Promise<boolean> {
+    // Serialized: with MAX_CONCURRENT_TASKS > 1 two workers can ask at once, and a
+    // second prompt overwriting the resolver would strand the first one forever.
+    const answered = this.approvalQueue.then(() => this.promptForApproval(request));
+    this.approvalQueue = answered.then(() => undefined, () => undefined);
+    return answered;
+  }
+
+  private promptForApproval(request: { tool: string; reason: string; preview: string }): Promise<boolean> {
+    if (this.approvalsAborted) return Promise.resolve(false);
+
+    const taskId = this.triageAgent?.currentTaskId ?? [...this.runningTasks][0] ?? '';
+    const previousStatus = this._mission.status;
+    this._mission.status = 'awaiting_intervention';
+
+    return new Promise<boolean>((resolve) => {
+      this.approvalResolve = (approved: boolean) => {
+        // Only hand the status back if nothing else claimed it while we waited.
+        if (this._mission.status === 'awaiting_intervention') {
+          this._mission.status = previousStatus;
+        }
+        this.onEvent?.({ type: 'approval_resolved', taskId, tool: request.tool, approved });
+        resolve(approved);
+      };
+      this.onEvent?.({
+        type: 'approval_required',
+        taskId,
+        tool: request.tool,
+        reason: request.reason,
+        preview: request.preview,
+      });
+    });
+  }
+
+  /** Called externally (from the TUI hook) to answer a pending tool approval. */
+  public resolveToolApproval(approved: boolean) {
+    if (this.approvalResolve) {
+      const resolve = this.approvalResolve;
+      this.approvalResolve = null;
+      resolve(approved);
+    }
+  }
+
+  /** Deny every in-flight and queued approval so a cancelled mission leaves no executor hanging. */
+  public abortPendingApproval() {
+    this.approvalsAborted = true;
+    this.resolveToolApproval(false);
+  }
+
+  /** Close a run and flush the roster. Every terminal transition goes through here. */
+  private async finishRun(runId: string, status: 'completed' | 'failed', error?: string): Promise<void> {
+    if (status === 'completed') this.runRegistry.complete(runId);
+    else this.runRegistry.fail(runId, error ?? 'Task failed');
+    await this.runRegistry.save();
   }
 
   async run() {
@@ -235,15 +316,16 @@ export class Scheduler {
   private async executeTask(task: Task) {
     this.runningTasks.add(task.id);
     task.status = 'in_progress';
-    task.attemptCount = (task.attemptCount || 0) + 1;
-    const runId = `${this._mission.id}:${task.id}:${task.attemptCount}`;
+    const attempt = (task.attemptCount || 0) + 1;
+    task.attemptCount = attempt;
+    const runId = `${this._mission.id}:${task.id}:${attempt}`;
     this.runRegistry.register({
       runId,
       missionId: this._mission.id,
       taskId: task.id,
       title: task.title,
-      attempt: task.attemptCount,
-      transcriptPath: join(this._mission.workspace_root, '.vibes', 'traces', `${task.id}.jsonl`),
+      attempt,
+      transcriptPath: traceFilePath(this._mission.workspace_root, task.id, attempt),
     });
     this.runRegistry.start(runId, `worker:${task.id}`);
     await this.runRegistry.save();
@@ -258,25 +340,38 @@ export class Scheduler {
         ? `\nTech Stack: ${this._mission.tech_stack.join(', ')}`
         : '';
       const missionContext = `Mission: ${this._mission.title}\nDescription: ${this._mission.description}${stackLine}`;
+      const trackRunProgress: OnEvent = (event) => {
+        if (event.type === 'tool_call') {
+          this.runRegistry.tryUpdate(runId, { currentTool: event.tool });
+        } else if (event.type === 'tool_result') {
+          this.runRegistry.tryUpdate(runId, {
+            currentTool: undefined,
+            lastOutput: event.result.success ? `${event.tool}: ok` : `${event.tool}: ${event.result.error ?? 'failed'}`,
+          });
+        }
+        this.onEvent?.(event);
+      };
+
       const updatedTask = await this.executor.executeTask(
         task,
         missionContext,
         this._mission.workspace_root,
-        this.onEvent,
+        trackRunProgress,
         this.getYoloMode,
         this._mission.tech_stack,
         {
           runId,
           missionId: this._mission.id,
-          attempt: task.attemptCount ?? 1,
+          attempt,
         },
       );
 
       this.updateTaskInMission(updatedTask);
 
       if (updatedTask.status === 'done') {
-        this.runRegistry.complete(runId);
-        await this.runRegistry.save();
+        // The run stays open until review and verification agree. Closing it here
+        // would make every later transition a no-op, so the durable roster would
+        // record success for work the reviewer went on to reject.
         // Optional Review Step — only for code tasks
         if (config.ENABLE_REVIEWER && updatedTask.type === 'code') {
           const { Reviewer } = await import('./reviewer.js');
@@ -284,15 +379,29 @@ export class Scheduler {
 
           const review = await reviewer.reviewTask(updatedTask, this._mission, this._mission.workspace_root);
           
+          if (review.unverified) {
+            // The reviewer never ran. Re-running the task cannot fix an unreachable
+            // endpoint, so this must not consume the rejection retry budget.
+            log(`Reviewer unavailable for ${updatedTask.title}; escalating without retrying: ${review.feedback}`, 'ERROR');
+            await this.finishRun(runId, 'failed', review.feedback || 'Reviewer unavailable');
+            updatedTask.status = 'failed';
+            updatedTask.error = review.feedback || 'Reviewer unavailable; completion is unverified';
+            await this.handleTaskFailure(updatedTask);
+            await this.persistState?.(this._mission);
+            return;
+          }
+
           if (review.approved) {
             log(`Task approved by reviewer: ${updatedTask.title}`, 'INFO');
             updatedTask.reviewIssues = undefined;
 
             // Verification phase — catches orphaned CSS, broken imports, syntax errors, and build failures
             if (!await this.verifyTask(task, updatedTask)) {
+              await this.finishRun(runId, 'failed', updatedTask.error || 'Verification failed');
               return;
             }
 
+            await this.finishRun(runId, 'completed');
             this.completedTasks.add(task.id);
             this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
             await this.persistState?.(this._mission);
@@ -300,6 +409,7 @@ export class Scheduler {
           } else {
             log(`Task REJECTED by reviewer: ${updatedTask.title}. Feedback: ${review.feedback}`, 'WARN');
             updatedTask.reviewIssues = review.issues;
+            await this.finishRun(runId, 'failed', `Review rejected: ${review.feedback ?? 'no feedback'}`);
             if (updatedTask.attemptCount && updatedTask.attemptCount < 3) {
               // Auto-retry with reviewer feedback as guidance
               log(`Auto-retrying task with reviewer feedback: ${updatedTask.title} (Attempt ${updatedTask.attemptCount})`, 'INFO');
@@ -326,23 +436,23 @@ export class Scheduler {
 
           // Verification phase (for non-reviewer path)
           if (!await this.verifyTask(task, updatedTask)) {
+            await this.finishRun(runId, 'failed', updatedTask.error || 'Verification failed');
             return;
           }
 
+          await this.finishRun(runId, 'completed');
           this.completedTasks.add(task.id);
           this.onEvent?.({ type: 'task_completed', taskId: task.id, title: task.title });
           await this.persistState?.(this._mission);
           await this.runTriageAnalysis();
         }
       } else {
-        this.runRegistry.fail(runId, updatedTask.error || 'Task execution failed');
-        await this.runRegistry.save();
+        await this.finishRun(runId, 'failed', updatedTask.error || 'Task execution failed');
         await this.handleTaskFailure(updatedTask);
         await this.persistState?.(this._mission);
       }
     } catch (error: any) {
-      this.runRegistry.fail(runId, error.message);
-      await this.runRegistry.save();
+      await this.finishRun(runId, 'failed', error.message);
       task.status = 'failed';
       task.error = error.message;
       task.userGuidance = undefined;
@@ -453,6 +563,18 @@ export class Scheduler {
   private async verifyTask(task: Task, updatedTask: Task): Promise<boolean> {
     const goalJudge = createDefaultGoalJudge();
     const result = await goalJudge.evaluate(updatedTask, this._mission.workspace_root);
+
+    // Advisory repository-history findings: they never block a task, but discarding
+    // them silently makes the audit pointless.
+    for (const warning of result.auditWarnings ?? []) {
+      log(`Repository audit warning for ${updatedTask.title}: ${warning}`, 'WARN');
+      this.onEvent?.({
+        type: 'system_log',
+        level: 'WARN',
+        message: `Repository audit: ${warning}`,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     if (!result.approved) {
       log(`Verification failed for task: ${updatedTask.title}`, 'WARN');

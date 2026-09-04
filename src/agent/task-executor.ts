@@ -271,10 +271,17 @@ export class TaskExecutor {
       attempt: executionContext?.attempt ?? task.attemptCount ?? 1,
     });
 
-    /** Emit to both the live TUI and the persistent trace file. */
+    /**
+     * Emit to the live TUI, and to the persistent trace file for everything but
+     * token deltas. Deltas are a rendering concern: journalling one envelope per
+     * token would make the trace orders of magnitude larger than the run it
+     * records, and the coalesced `thinking`/`output` events carry the same content.
+     */
     const emit = (evt: ExecutionEvent) => {
       onEvent?.(evt);
-      void trace.event(evt);
+      if (evt.type !== 'thinking_delta' && evt.type !== 'output_delta') {
+        void trace.event(evt);
+      }
     };
 
     let memoriesSection = '';
@@ -531,7 +538,7 @@ ${memoriesSection}`;
           }
         }
         if (thinkingContent) {
-          onEvent?.({ type: 'thinking', content: thinkingContent.trim() });
+          emit({ type: 'thinking', content: thinkingContent.trim() });
         }
 
         // Strip ALL <think> blocks (global flag) and reasoning field from the message
@@ -797,12 +804,12 @@ ${memoriesSection}`;
           // what they would do instead of actually doing it.
           if (!hasCalledAnyTool && step < 3) {
             log('Text-only completion attempted with no prior tool calls — nudging model', 'WARN');
-            onEvent?.({ type: 'output', content: message.content });
+            emit({ type: 'output', content: message.content });
             messages.push({ role: 'user', content: '[SYSTEM]: You provided a summary but never used any tools to create files. You MUST use tools (file_write, shell, etc.) to actually create the required files before completing this task.' });
             continue;
           }
           log(`Task output: ${message.content.slice(0, 100)}...`, 'INFO');
-          onEvent?.({ type: 'output', content: message.content });
+          emit({ type: 'output', content: message.content });
           currentTask = { ...currentTask, status: 'done', output: message.content };
           return currentTask;
         }

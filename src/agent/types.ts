@@ -1,6 +1,6 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { z } from 'zod';
-import type { CompletionReceipt } from './completion-receipt.js';
+import { CompletionReceiptSchema } from './completion-receipt.js';
 
 export const TaskStatusSchema = z.enum(['todo', 'in_progress', 'done', 'failed']);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
@@ -41,7 +41,7 @@ export const TaskSchema = z.object({
     severity: z.enum(['error', 'warning']),
     suggestion: z.string().optional(),
   })).optional(),
-  completionReceipt: z.custom<CompletionReceipt>().optional(),
+  completionReceipt: CompletionReceiptSchema.optional(),
 });
 
 export type Task = z.infer<typeof TaskSchema>;
@@ -85,6 +85,8 @@ export type ExecutionEvent =
   | { type: 'error'; message: string }
   | { type: 'context_update'; used: number; total: number; percentage: number }
   | { type: 'intervention_required'; taskId: string; error: string; question: string }
+  | { type: 'approval_required'; taskId: string; tool: string; reason: string; preview: string }
+  | { type: 'approval_resolved'; taskId: string; tool: string; approved: boolean }
   | { type: 'steps_updated'; taskId: string; extraSteps: number }
   | { type: 'task_started'; taskId: string; title: string }
   | { type: 'task_completed'; taskId: string; title: string }

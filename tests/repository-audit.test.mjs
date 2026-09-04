@@ -24,7 +24,7 @@ test('repository audit detects deleted tests and newly added dependencies', asyn
   await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({ dependencies: { newlib: '^1.0.0' } }));
   await fs.rm(path.join(root, 'tests', 'old.test.mjs'));
 
-  const issues = runRepositoryAudit(root);
+  const issues = await runRepositoryAudit(root);
   assert.equal(issues.some(issue => issue.type === 'deleted_test'), true);
   assert.equal(issues.some(issue => issue.type === 'new_dependency' && issue.message.includes('newlib')), true);
   await fs.rm(root, { recursive: true, force: true });

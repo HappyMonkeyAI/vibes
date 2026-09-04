@@ -22,5 +22,6 @@ test('arena runner bounds candidates, preserves evidence, and does not auto-sele
   assert.deepEqual(results[0].evidence, ['a:build:0']);
   assert.equal(results[1].status, 'failed');
   assert.match(results[1].error, /provider unavailable/);
-  assert.equal('winner' in results, false);
+  // No candidate is anointed: the runner reports evidence, the caller decides.
+  assert.equal(results.every(result => !('winner' in result)), true);
 });

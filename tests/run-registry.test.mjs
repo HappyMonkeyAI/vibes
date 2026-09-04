@@ -42,3 +42,29 @@ test('RunRegistry saves an atomic durable roster and restores it', async () => {
   assert.equal(restored.get('run-3')?.workerId, 'worker-3');
   await fs.rm(root, { recursive: true, force: true });
 });
+
+test('RunRegistry.update patches a single field', () => {
+  const registry = new RunRegistry();
+  registry.register({ runId: 'run-4', missionId: 'm', taskId: 't', title: 'Task' });
+  registry.start('run-4', 'worker-4');
+  registry.update('run-4', { currentTool: 'shell' });
+  registry.update('run-4', { lastOutput: 'shell: ok' });
+
+  const run = registry.get('run-4');
+  assert.equal(run?.currentTool, 'shell');
+  assert.equal(run?.lastOutput, 'shell: ok');
+});
+
+test('restored runs left mid-flight by a dead process are marked stale', () => {
+  const registry = new RunRegistry();
+  registry.restore([
+    { runId: 'a', missionId: 'm', taskId: 't1', title: 'A', status: 'running', attempt: 1, startedAt: new Date().toISOString() },
+    { runId: 'b', missionId: 'm', taskId: 't2', title: 'B', status: 'queued', attempt: 1 },
+    { runId: 'c', missionId: 'm', taskId: 't3', title: 'C', status: 'completed', attempt: 1 },
+  ]);
+
+  assert.equal(registry.markInterrupted(), 2);
+  assert.equal(registry.get('a')?.status, 'stale');
+  assert.equal(registry.get('b')?.status, 'stale');
+  assert.equal(registry.get('c')?.status, 'completed');
+});

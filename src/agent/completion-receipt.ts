@@ -1,20 +1,27 @@
-export type CompletionClaimType = 'created' | 'modified' | 'deleted' | 'renamed' | 'tests_pass' | 'build_pass' | 'deferred' | 'no_change';
+import { z } from 'zod';
 
-export interface CompletionClaim {
-  type: CompletionClaimType;
-  file?: string;
-  command?: string;
-  exitCode?: number;
-  what?: string;
-  why?: string;
-}
+export const CompletionClaimTypeSchema = z.enum([
+  'created', 'modified', 'deleted', 'renamed', 'tests_pass', 'build_pass', 'deferred', 'no_change',
+]);
+export type CompletionClaimType = z.infer<typeof CompletionClaimTypeSchema>;
 
-export interface CompletionReceipt {
-  v: 1;
-  task: string;
-  status: 'complete' | 'partial' | 'blocked';
-  claims: CompletionClaim[];
-}
+export const CompletionClaimSchema = z.object({
+  type: CompletionClaimTypeSchema,
+  file: z.string().optional(),
+  command: z.string().optional(),
+  exitCode: z.number().optional(),
+  what: z.string().optional(),
+  why: z.string().optional(),
+});
+export type CompletionClaim = z.infer<typeof CompletionClaimSchema>;
+
+export const CompletionReceiptSchema = z.object({
+  v: z.literal(1),
+  task: z.string(),
+  status: z.enum(['complete', 'partial', 'blocked']),
+  claims: z.array(CompletionClaimSchema),
+});
+export type CompletionReceipt = z.infer<typeof CompletionReceiptSchema>;
 
 export interface VerificationCommand {
   command: string;
@@ -31,20 +38,34 @@ export interface CompletionReceiptResult {
   errors: string[];
 }
 
+const FILE_CLAIM_TYPES = new Set<CompletionClaimType>(['created', 'modified', 'deleted', 'renamed']);
+
+/**
+ * Receipts come from a model, so the shape is checked before it is trusted —
+ * a malformed receipt must return `valid: false`, never throw.
+ */
 export function validateCompletionReceipt(
-  receipt: CompletionReceipt,
+  receipt: unknown,
   reality: CompletionReality,
 ): CompletionReceiptResult {
+  const parsed = CompletionReceiptSchema.safeParse(receipt);
+  if (!parsed.success) {
+    return {
+      valid: false,
+      errors: parsed.error.issues.map(issue => `Malformed completion receipt at ${issue.path.join('.') || '<root>'}: ${issue.message}`),
+    };
+  }
+
+  const value = parsed.data;
   const errors: string[] = [];
   const changed = new Set(reality.changedFiles);
   const verified = new Map(reality.verificationCommands.map(item => [item.command, item.exitCode]));
 
-  if (receipt.v !== 1) errors.push('Unsupported completion receipt version');
-  if (!receipt.task.trim()) errors.push('Completion receipt task is empty');
-  if (receipt.claims.length === 0) errors.push('Completion receipt has no claims');
+  if (!value.task.trim()) errors.push('Completion receipt task is empty');
+  if (value.claims.length === 0) errors.push('Completion receipt has no claims');
 
-  for (const claim of receipt.claims) {
-    if (['created', 'modified', 'deleted', 'renamed'].includes(claim.type)) {
+  for (const claim of value.claims) {
+    if (FILE_CLAIM_TYPES.has(claim.type)) {
       if (!claim.file) {
         errors.push(`${claim.type} claim has no file`);
       } else if (!changed.has(claim.file)) {
@@ -55,9 +76,10 @@ export function validateCompletionReceipt(
     if (claim.type === 'tests_pass' || claim.type === 'build_pass') {
       if (!claim.command) {
         errors.push(`${claim.type} claim has no command`);
+      } else if (!verified.has(claim.command)) {
+        errors.push(`No captured verification evidence for: ${claim.command}`);
       } else {
-        const actualExitCode = verified.get(claim.command);
-        if (actualExitCode !== 0) {
+        if (verified.get(claim.command) !== 0) {
           errors.push(`Verification did not pass: ${claim.command}`);
         }
         if (claim.exitCode !== 0) {
@@ -71,7 +93,7 @@ export function validateCompletionReceipt(
     }
   }
 
-  if (receipt.status === 'complete' && receipt.claims.some(claim => claim.type === 'deferred')) {
+  if (value.status === 'complete' && value.claims.some(claim => claim.type === 'deferred')) {
     errors.push('Complete receipt cannot contain deferred claims');
   }
 

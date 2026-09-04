@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TaskExecutor } from '../dist/agent/task-executor.js';
-import { config, updateConfig } from '../dist/config.js';
+import { config, overrideConfig } from '../dist/config.js';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -21,7 +21,7 @@ test('TaskExecutor triggers reconstruction when enabled and threshold hit', asyn
   const address = server.address();
   assert.ok(address && typeof address === 'object');
 
-  updateConfig({
+  overrideConfig({
     ENABLE_CONTEXT_RECONSTRUCTION: true,
     OLLAMA_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
     CONTEXT_WINDOW: 15000,
@@ -46,7 +46,7 @@ test('TaskExecutor triggers reconstruction when enabled and threshold hit', asyn
     assert.ok(['done', 'failed'].includes(result.status));
   } finally {
     server.close();
-    updateConfig({
+    overrideConfig({
       ENABLE_CONTEXT_RECONSTRUCTION: originalReconstruction,
       OLLAMA_BASE_URL: originalBaseUrl,
       CONTEXT_WINDOW: originalWindow,

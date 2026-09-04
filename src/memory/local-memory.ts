@@ -6,7 +6,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { MemoryItem, normalizeMemoryItem, dedupeMemoryItems } from './memory-item.js';
+import { MemoryItem, MemoryItemInput, normalizeMemoryItem, dedupeMemoryItems } from './memory-item.js';
 
 export interface MemoryOptions {
   userId?: string;
@@ -105,7 +105,7 @@ export class LocalMemoryService {
     await this.addContext(context, { type: 'tool_usage', tool: toolName });
   }
 
-  async addMemoryItem(input: Omit<MemoryItem, 'id' | 'timestamp'> & Partial<Pick<MemoryItem, 'id' | 'timestamp'>>): Promise<MemoryItem> {
+  async addMemoryItem(input: MemoryItemInput): Promise<MemoryItem> {
     await this.ensureReady();
     const item = normalizeMemoryItem(input);
     await fs.mkdir(path.dirname(this.structuredFilePath), { recursive: true });
@@ -121,7 +121,16 @@ export class LocalMemoryService {
     } catch {
       return [];
     }
-    const items = content.split('\n').filter(Boolean).map(line => JSON.parse(line) as MemoryItem);
+    // One torn line in an append-only journal must not destroy recall for the rest.
+    const items: MemoryItem[] = [];
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        items.push(JSON.parse(line) as MemoryItem);
+      } catch {
+        continue;
+      }
+    }
     const terms = query.toLowerCase().split(/\s+/).filter(term => term.length > 2);
     return dedupeMemoryItems(items)
       .map(item => ({ item, score: terms.reduce((score, term) => score + (item.content.toLowerCase().includes(term) || item.summary.toLowerCase().includes(term) ? term.length : 0), 0) }))

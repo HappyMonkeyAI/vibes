@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
+import { parseDenyPatterns, validateDenyPatterns } from './agent/approval-policy.js';
 
 dotenv.config();
 
@@ -30,6 +31,8 @@ export const ConfigSchema = z.object({
   DATA_SHARING_MODE: z.enum(['none', 'workspace', 'full']).default('none'),
   TOOL_EXECUTION_MODE: z.enum(['sequential', 'parallel']).default('sequential'),
   APPROVAL_MODE: z.enum(['legacy', 'default', 'plan', 'auto-edit', 'yolo']).default('legacy'),
+  /** Comma-separated regex rules (case-insensitive) matched against the tool name and its string arguments. */
+  APPROVAL_DENY_PATTERNS: z.string().default(''),
   CONTEXT_COMPACTION_ENABLED: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(true),
   TRACE_DIR: z.string().optional(),
   TRIAGE_ENABLED: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
@@ -93,8 +96,26 @@ if (!finalParsed.success) {
 // copies will hold stale values for the lifetime of the module.
 export const config: Config = finalParsed.data;
 
+// A deny rule that cannot compile is a configuration error, and one discovered at
+// the first blocked tool call is discovered far too late to be useful.
+try {
+  validateDenyPatterns(parseDenyPatterns(config.APPROVAL_DENY_PATTERNS));
+} catch (error) {
+  console.error(`❌ Invalid configuration: ${(error as Error).message}`);
+  process.exit(1);
+}
+
 export function hasPersistentConfig(): boolean {
   return fs.existsSync(CONFIG_PATH);
+}
+
+/**
+ * In-memory override for the current process. Use this in tests and transient
+ * runs: updateConfig() persists to the developer's real .vibes/config.json, so
+ * a test that reaches for it rewrites the settings of whoever ran it.
+ */
+export function overrideConfig(newConfig: Partial<Config>) {
+  Object.assign(config, newConfig);
 }
 
 export function updateConfig(newConfig: Partial<Config>) {
@@ -111,7 +132,7 @@ export function updateConfig(newConfig: Partial<Config>) {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(toPersist, null, 2));
     
     // Also update the in-memory object for the current session
-    Object.assign(config, updated);
+    overrideConfig(updated);
   } catch (error) {
     console.error('⚠️ Failed to save configuration:', error);
   }

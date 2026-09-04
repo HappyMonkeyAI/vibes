@@ -12,9 +12,13 @@ import { config } from '../../config.js';
 import { getMCPService } from '../../mcp/mcp-service.js';
 import { getSessionService, SessionData } from '../../agent/session-service.js';
 import { formatModelProviderError } from '../../ollama-client.js';
-import { applyLiveEvent, createLiveEventState, flushLiveEventState } from '../event-view-model.js';
-import { createApprovalHook } from '../../agent/approval-policy.js';
+import { applyLiveEvents, createLiveEventState, flushLiveEventState, isStreamDeltaEvent } from '../event-view-model.js';
+import { createApprovalHook, parseDenyPatterns } from '../../agent/approval-policy.js';
 import type { RunRecord } from '../../agent/run-registry.js';
+
+export type PendingPrompt =
+  | { kind: 'failure'; taskId: string; error: string; question: string }
+  | { kind: 'tool_approval'; taskId: string; tool: string; reason: string; preview: string };
 
 export const useMission = () => {
   const [mission, setMission] = useState<Mission | null>(null);
@@ -24,7 +28,7 @@ export const useMission = () => {
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
   const [contextUsage, setContextUsage] = useState<{ used: number; total: number; percentage: number } | null>(null);
-  const [pendingIntervention, setPendingIntervention] = useState<{ taskId: string; error: string; question: string } | null>(null);
+  const [pendingIntervention, setPendingIntervention] = useState<PendingPrompt | null>(null);
   const [activeMaxSteps, setActiveMaxSteps] = useState(config.MAX_STEPS);
   const [isYoloMode, setIsYoloMode] = useState(config.YOLO_MODE);
   const [sessions, setSessions] = useState<SessionData[]>([]);
@@ -54,9 +58,7 @@ export const useMission = () => {
     const buffered = eventBufferRef.current;
     eventBufferRef.current = [];
 
-    for (const event of buffered) {
-      liveEventStateRef.current = applyLiveEvent(liveEventStateRef.current, event);
-    }
+    liveEventStateRef.current = applyLiveEvents(liveEventStateRef.current, buffered);
     const flushedBacklog = liveEventStateRef.current.backlog;
     liveEventStateRef.current = flushLiveEventState(liveEventStateRef.current);
     setLiveThinking(liveEventStateRef.current.activeThinking);
@@ -202,7 +204,11 @@ export const useMission = () => {
       const triage = config.TRIAGE_ENABLED ? new TriageAgent(config.TRIAGE_AUTO_STEER) : null;
       const baseHooks = createDefaultHooks(() => isYoloRef.current);
       if (config.APPROVAL_MODE !== 'legacy') {
-        baseHooks.beforeToolCall = createApprovalHook({ mode: config.APPROVAL_MODE });
+        baseHooks.beforeToolCall = createApprovalHook(
+          { mode: config.APPROVAL_MODE, denyPatterns: parseDenyPatterns(config.APPROVAL_DENY_PATTERNS) },
+          // schedulerRef is populated below, before scheduler.run() can trigger a tool call.
+          request => schedulerRef.current?.requestToolApproval(request) ?? Promise.resolve(false),
+        );
       }
       const executor = new TaskExecutor(tools, {
         getYoloMode: () => isYoloRef.current,
@@ -214,7 +220,19 @@ export const useMission = () => {
           setContextUsage({ used: event.used, total: event.total, percentage: event.percentage });
         }
         if (event.type === 'intervention_required') {
-          setPendingIntervention({ taskId: event.taskId, error: event.error, question: event.question });
+          setPendingIntervention({ kind: 'failure', taskId: event.taskId, error: event.error, question: event.question });
+        }
+        if (event.type === 'approval_required') {
+          setPendingIntervention({
+            kind: 'tool_approval',
+            taskId: event.taskId,
+            tool: event.tool,
+            reason: event.reason,
+            preview: event.preview,
+          });
+        }
+        if (event.type === 'approval_resolved') {
+          setPendingIntervention(current => (current?.kind === 'tool_approval' ? null : current));
         }
         if (event.type === 'steps_updated') {
           setActiveMaxSteps(config.MAX_STEPS + event.extraSteps);
@@ -233,7 +251,7 @@ export const useMission = () => {
 
         // Buffer events and flush periodically to avoid re-render storming
         eventBufferRef.current.push(event);
-        if (event.type !== 'thinking_delta' && event.type !== 'output_delta') {
+        if (!isStreamDeltaEvent(event)) {
           allEventsRef.current.push(event);
         }
         const MAX_EVENTS = 1000;
@@ -277,6 +295,7 @@ export const useMission = () => {
         await sessionService.saveSession(currentMission, [...allEventsRef.current], { readFiles: [], modifiedFiles: [] });
       }
     } finally {
+      schedulerRef.current?.abortPendingApproval();
       setIsExecuting(false);
       setPendingIntervention(null);
       schedulerRef.current = null;
@@ -294,6 +313,12 @@ export const useMission = () => {
     if (schedulerRef.current) {
       schedulerRef.current.resolveIntervention({ action, message });
     }
+  }, []);
+
+  /** Answers a pending `ask` decision from the approval policy. */
+  const resolveToolApproval = useCallback((approved: boolean) => {
+    setPendingIntervention(null);
+    schedulerRef.current?.resolveToolApproval(approved);
   }, []);
 
   const rejectMission = useCallback(() => {
@@ -369,6 +394,7 @@ export const useMission = () => {
     approveMission,
     rejectMission,
     resolveIntervention,
+    resolveToolApproval,
     toggleYoloMode,
     resetMission,
     undoMission,

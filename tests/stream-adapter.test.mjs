@@ -21,3 +21,16 @@ test('consumeChatCompletionStream assembles content, reasoning, and tool-call de
   assert.equal(message.tool_calls[0].function.arguments, '{"cmd":"pwd"}');
   assert.deepEqual(deltas.map(delta => delta.kind), ['thinking', 'thinking', 'content', 'content', 'tool_call', 'tool_call']);
 });
+
+test('tool calls arriving out of index order assemble without holes', async () => {
+  const stream = (async function* () {
+    yield { choices: [{ delta: { tool_calls: [{ index: 1, id: 'call-b', function: { name: 'shell', arguments: '{}' } }] } }] };
+    yield { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-a', function: { name: 'file_read', arguments: '{}' } }] } }] };
+  })();
+
+  const message = await consumeChatCompletionStream(stream);
+
+  assert.equal(message.tool_calls.length, 2);
+  assert.equal(message.tool_calls.every(call => call !== undefined), true);
+  assert.deepEqual(message.tool_calls.map(call => call.id), ['call-a', 'call-b']);
+});
