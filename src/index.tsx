@@ -13,6 +13,7 @@ import { TraceView } from './tui/components/trace-view.js';
 import { SettingsView } from './tui/components/settings-view.js';
 import { ApprovalView } from './tui/components/approval-view.js';
 import { InterventionView } from './tui/components/intervention-view.js';
+import { ToolApprovalView } from './tui/components/tool-approval-view.js';
 import { LogStreamView } from './tui/components/log-stream-view.js';
 import { UpdateNotification } from './tui/components/update-notification.js';
 import { MissionCompleteBanner, getMissionOutcome } from './tui/components/mission-complete-banner.js';
@@ -27,8 +28,9 @@ const App = () => {
   const {
     mission, pendingMission, isPlanning, isExecuting,
     error, events, contextUsage, pendingIntervention, activeMaxSteps,
-    isYoloMode, toggleYoloMode, sessions, triageState, governorStats,
-    startMission, approveMission, rejectMission, resolveIntervention, resetMission, undoMission,
+    isYoloMode, toggleYoloMode, sessions, triageState, governorStats, runSummaries,
+    liveThinking, liveOutput, eventBacklog,
+    startMission, approveMission, rejectMission, resolveIntervention, resolveToolApproval, resetMission, undoMission,
     loadSession, deleteSession,
   } = useMission();
 
@@ -269,12 +271,21 @@ const App = () => {
           />
         )}
 
-        {pendingIntervention && (
+        {pendingIntervention?.kind === 'failure' && (
           <InterventionView
             taskId={pendingIntervention.taskId}
             error={pendingIntervention.error}
             question={pendingIntervention.question}
             onResolve={resolveIntervention}
+          />
+        )}
+
+        {pendingIntervention?.kind === 'tool_approval' && (
+          <ToolApprovalView
+            tool={pendingIntervention.tool}
+            reason={pendingIntervention.reason}
+            preview={pendingIntervention.preview}
+            onResolve={resolveToolApproval}
           />
         )}
 
@@ -310,7 +321,14 @@ const App = () => {
         )}
 
         {!pendingMission && !pendingIntervention && view === 'task' && (
-          <TaskView events={events} isExecuting={isExecuting} />
+          <TaskView
+            events={events}
+            isExecuting={isExecuting}
+            runSummaries={runSummaries}
+            liveThinking={liveThinking}
+            liveOutput={liveOutput}
+            eventBacklog={eventBacklog}
+          />
         )}
         
         {!pendingMission && !pendingIntervention && view === 'log' && (

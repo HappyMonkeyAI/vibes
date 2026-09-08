@@ -40,6 +40,8 @@ const FIELDS: FieldDefinition[] = [
   { label: 'Context Window', key: 'CONTEXT_WINDOW', type: 'number' },
   { label: 'Max Steps', key: 'MAX_STEPS', type: 'number' },
   { label: 'Max Concurrent Tasks', key: 'MAX_CONCURRENT_TASKS', type: 'number' },
+  { label: 'Small-Model Runtime Profile', key: 'SMALL_MODEL_PROFILE', type: 'boolean' },
+  { label: 'Use Isolated Task Worktrees', key: 'USE_ISOLATED_WORKTREES', type: 'boolean' },
   { label: 'Reasoning Mode', key: 'THINKING_MODE', type: 'boolean' },
   { label: 'Default YOLO Mode', key: 'YOLO_MODE', type: 'boolean' },
   { label: 'Tool Execution Mode', key: 'TOOL_EXECUTION_MODE', type: 'select' },

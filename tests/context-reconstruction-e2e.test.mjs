@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TaskExecutor, createDefaultHooks } from '../dist/agent/task-executor.js';
-import { config, updateConfig } from '../dist/config.js';
+import { config, overrideConfig } from '../dist/config.js';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -53,7 +53,7 @@ test('E2E: Context Reconstruction Lifecycle (Local Mock Server)', async () => {
   const originalBaseUrl = config.OLLAMA_BASE_URL;
   const originalWindow = config.CONTEXT_WINDOW;
   
-  updateConfig({ 
+  overrideConfig({ 
     ENABLE_CONTEXT_RECONSTRUCTION: true,
     OLLAMA_BASE_URL: `http://localhost:${port}/v1`,
     CONTEXT_WINDOW: 15000, 
@@ -99,7 +99,7 @@ test('E2E: Context Reconstruction Lifecycle (Local Mock Server)', async () => {
 
   } finally {
     server.close();
-    updateConfig({ 
+    overrideConfig({ 
       ENABLE_CONTEXT_RECONSTRUCTION: originalReconstruction,
       OLLAMA_BASE_URL: originalBaseUrl,
       CONTEXT_WINDOW: originalWindow

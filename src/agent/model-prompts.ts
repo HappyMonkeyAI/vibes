@@ -23,6 +23,32 @@ export function isGemma12BModel(modelName: string): boolean {
   return normalized.includes('gemma') && normalized.includes('12b');
 }
 
+/** Models at this size need a shorter, more deterministic tool loop. */
+export function isSmallModel(modelName: string): boolean {
+  return !isGemma12BModel(modelName) && /(?:^|[^0-9])(?:[1-9]|1[0-2])b(?:[^0-9]|$)/i.test(modelName);
+}
+
+export interface SmallModelRuntimeProfile {
+  maxSteps: number;
+  maxConcurrentTasks: number;
+  compactContext: boolean;
+}
+
+export function getSmallModelRuntimeProfile(
+  modelName: string,
+  enabled: boolean,
+): SmallModelRuntimeProfile | null {
+  if (!enabled || !isSmallModel(modelName)) return null;
+  return { maxSteps: 20, maxConcurrentTasks: 1, compactContext: true };
+}
+
+const SMALL_MODEL_GUIDANCE = `SMALL MODEL EXECUTION GUIDANCE:
+- Work directly on the current task; do not explore unrelated files.
+- Use one tool call at a time and read the result before choosing the next call.
+- Prefer the smallest complete change that satisfies every listed criterion.
+- If a tool fails, correct that exact failure before trying another approach.
+- Do not claim completion until the changed files and verification result are confirmed.`;
+
 function loadGemma12BPrompt(): string {
   if (cachedGemmaPrompt !== undefined) return cachedGemmaPrompt;
 
@@ -74,7 +100,10 @@ function getRoleContract(role: ModelPromptRole): string {
 
 export function getModelSpecificPrompt(modelName: string, role: ModelPromptRole): string {
   const roleContract = getRoleContract(role);
-  if (!isGemma12BModel(modelName)) return `\n\n[CONTRACT]:\n${roleContract}\n`;
+  if (!isGemma12BModel(modelName)) {
+    const smallModelGuidance = isSmallModel(modelName) ? `\n${SMALL_MODEL_GUIDANCE}\n` : '';
+    return `\n\n[CONTRACT]:\n${roleContract}${smallModelGuidance}\n`;
+  }
 
   return `\n\n[MODEL-SPECIFIC INSTRUCTIONS: GEMMA 4 12B QAT]
 ${loadGemma12BPrompt()}

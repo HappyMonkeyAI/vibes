@@ -579,6 +579,27 @@ export function runStructuralAudit(workspaceRoot: string, taskFiles: string[]): 
     }
   }
 
+  // Components that exist but are never imported are a common false-completion
+  // pattern. Only inspect task-declared TS/TSX files; entrypoints are exempt.
+  for (const taskFile of taskFiles) {
+    const fullPath = resolve(workspaceRoot, taskFile);
+    const extension = extname(fullPath).toLowerCase();
+    const baseName = fullPath.split(sep).pop()?.replace(/\.(tsx?|jsx?)$/i, '') || '';
+    if (!['.ts', '.tsx', '.js', '.jsx'].includes(extension) || /^(app|main|index)$/i.test(baseName)) continue;
+    const referenced = files.some(file => {
+      if (file === fullPath) return false;
+      const content = readFileSync(file, 'utf8');
+      return new RegExp(`(?:from|import)\\s*[\\"'][^\\"']*${baseName}[^\\"']*[\\"']`, 'i').test(content);
+    });
+    if (!referenced) {
+      issues.push({
+        type: 'dead_code',
+        file: taskFile,
+        message: 'Component file exists but is not imported by another source file or entrypoint',
+      });
+    }
+  }
+
   if (issues.length > 0) {
     log(`Structural audit found ${issues.length} issue(s)`, 'WARN');
     for (const issue of issues) {

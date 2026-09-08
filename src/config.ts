@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
+import { parseDenyPatterns, validateDenyPatterns } from './agent/approval-policy.js';
 
 dotenv.config();
 
@@ -16,6 +17,8 @@ export const ConfigSchema = z.object({
   OLLAMA_API_KEY: z.string().default('ollama'),
   CONTEXT_WINDOW: z.coerce.number().default(32768),
   MAX_STEPS: z.coerce.number().default(25),
+  SMALL_MODEL_PROFILE: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
+  USE_ISOLATED_WORKTREES: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
   THINKING_MODE: z.union([z.boolean(), z.string().transform(v => v === 'enabled')]).default(true),
   MAX_CONCURRENT_TASKS: z.coerce.number().default(1),
   ENABLE_REVIEWER: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(true),
@@ -29,6 +32,9 @@ export const ConfigSchema = z.object({
   AGENT_HOOKS: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(true),
   DATA_SHARING_MODE: z.enum(['none', 'workspace', 'full']).default('none'),
   TOOL_EXECUTION_MODE: z.enum(['sequential', 'parallel']).default('sequential'),
+  APPROVAL_MODE: z.enum(['legacy', 'default', 'plan', 'auto-edit', 'yolo']).default('legacy'),
+  /** Comma-separated regex rules (case-insensitive) matched against the tool name and its string arguments. */
+  APPROVAL_DENY_PATTERNS: z.string().default(''),
   CONTEXT_COMPACTION_ENABLED: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(true),
   TRACE_DIR: z.string().optional(),
   TRIAGE_ENABLED: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
@@ -43,6 +49,7 @@ export const ConfigSchema = z.object({
   ENABLE_STRUCTURAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   ENABLE_ADVERSARIAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
   ENABLE_NATIVE_TOOLS: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
+  ENABLE_STREAMING: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
   CODEX_SCRIPT_PATH: z.string().default(''),
   CODEX_PYTHON_PATH: z.string().default(''),
   ENABLE_CONTEXT_RECONSTRUCTION: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
@@ -58,7 +65,16 @@ function loadPersistentConfig(): Partial<Config> {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const content = fs.readFileSync(CONFIG_PATH, 'utf-8');
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      // Prevent invisible TUI control characters from corrupting provider
+      // names/URLs while keeping the persisted config schema unchanged.
+      return Object.fromEntries(
+        Object.entries(parsed).map(([key, value]) => [
+          key,
+          typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, '') : value,
+        ]),
+      );
     }
   } catch (error) {
     console.error('⚠️ Failed to load persistent config:', error);
@@ -91,8 +107,26 @@ if (!finalParsed.success) {
 // copies will hold stale values for the lifetime of the module.
 export const config: Config = finalParsed.data;
 
+// A deny rule that cannot compile is a configuration error, and one discovered at
+// the first blocked tool call is discovered far too late to be useful.
+try {
+  validateDenyPatterns(parseDenyPatterns(config.APPROVAL_DENY_PATTERNS));
+} catch (error) {
+  console.error(`❌ Invalid configuration: ${(error as Error).message}`);
+  process.exit(1);
+}
+
 export function hasPersistentConfig(): boolean {
   return fs.existsSync(CONFIG_PATH);
+}
+
+/**
+ * In-memory override for the current process. Use this in tests and transient
+ * runs: updateConfig() persists to the developer's real .vibes/config.json, so
+ * a test that reaches for it rewrites the settings of whoever ran it.
+ */
+export function overrideConfig(newConfig: Partial<Config>) {
+  Object.assign(config, newConfig);
 }
 
 export function updateConfig(newConfig: Partial<Config>) {
@@ -109,7 +143,7 @@ export function updateConfig(newConfig: Partial<Config>) {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(toPersist, null, 2));
     
     // Also update the in-memory object for the current session
-    Object.assign(config, updated);
+    overrideConfig(updated);
   } catch (error) {
     console.error('⚠️ Failed to save configuration:', error);
   }

@@ -32,7 +32,7 @@ Key points:
 
 ## Resolved Architecture Decisions
 
-ADRs live in `.antigravity/memories/architectural_decisions/`. Key decisions:
+ADRs live in `.agent/memories/architectural_decisions/`. Key decisions:
 
 | Decision | Rationale |
 |----------|-----------|
@@ -91,13 +91,15 @@ ADRs live in `.antigravity/memories/architectural_decisions/`. Key decisions:
 
 ### Memory Architecture
 
-LTM at `.antigravity/memories/` with three types:
+LTM at `.agent/memories/` with three types:
 - `codebase_insights/` — semantic (module summaries, hidden logic)
 - `architectural_decisions/` — semantic (ADRs)
 - `patterns_and_lessons.md` — procedural (success patterns, failure post-mortems)
 - `history/` — episodic (plan/walkthrough archives, handoffs)
 
 All memory files require YAML frontmatter with `type`, `tags`, `created`, `blast_radius`, `confidence`.
+
+The repository adopted the [HappyMonkeyAI Agents Protocol](https://github.com/HappyMonkeyAI/AgentsProtocol/blob/main/BOOTSTRAP.md) additively on 2026-07-22. The pre-existing `.antigravity/memories/` tree remains intact as legacy compatibility and historical source material; new durable memory belongs under `.agent/memories/`.
 
 ### Testing
 

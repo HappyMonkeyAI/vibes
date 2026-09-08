@@ -1,5 +1,21 @@
 import { Task } from './types.js';
 
+/**
+ * Review and build verification inspect the same mutable workspace as the
+ * executor. Do not overlap reviewed code tasks: a verifier can otherwise run
+ * while a sibling task is halfway through a write or dependency update.
+ */
+export function getExecutionConcurrency(
+  tasks: Task[],
+  requestedConcurrency: number,
+  reviewerEnabled: boolean,
+): number {
+  if (reviewerEnabled && tasks.some(task => task.status === 'todo' && task.type === 'code')) {
+    return 1;
+  }
+  return Math.max(1, requestedConcurrency);
+}
+
 export function describeDependencyDeadlock(tasks: Task[], completedTaskIds: Set<string>): string | null {
   const pending = tasks.filter((task) => task.status === 'todo' || task.status === 'in_progress');
   if (pending.length === 0) {

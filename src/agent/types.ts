@@ -1,5 +1,7 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { z } from 'zod';
+import { CompletionReceiptSchema } from './completion-receipt.js';
+import { EvidenceHandoffSchema, OwnerAdversaryReviewSchema } from './protocol-contracts.js';
 
 export const TaskStatusSchema = z.enum(['todo', 'in_progress', 'done', 'failed']);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
@@ -40,6 +42,8 @@ export const TaskSchema = z.object({
     severity: z.enum(['error', 'warning']),
     suggestion: z.string().optional(),
   })).optional(),
+  completionReceipt: CompletionReceiptSchema.optional(),
+  evidenceHandoff: EvidenceHandoffSchema.optional(),
 });
 
 export type Task = z.infer<typeof TaskSchema>;
@@ -62,6 +66,7 @@ export const MissionSchema = z.object({
   status: z.enum(['planning', 'executing', 'completed', 'failed', 'awaiting_intervention']).default('planning'),
   /** Tech stack detected at planning time — e.g. ['typescript', 'react', 'css'] */
   tech_stack: z.array(z.string()).optional(),
+  ownerReview: OwnerAdversaryReviewSchema.optional(),
 });
 
 export type Mission = z.infer<typeof MissionSchema>;
@@ -75,12 +80,16 @@ export interface ToolResult {
 
 export type ExecutionEvent = 
   | { type: 'thinking'; content: string }
+  | { type: 'thinking_delta'; content: string }
+  | { type: 'output_delta'; content: string }
   | { type: 'tool_call'; tool: string; args: any }
   | { type: 'tool_result'; tool: string; result: ToolResult }
   | { type: 'output'; content: string }
   | { type: 'error'; message: string }
   | { type: 'context_update'; used: number; total: number; percentage: number }
   | { type: 'intervention_required'; taskId: string; error: string; question: string }
+  | { type: 'approval_required'; taskId: string; tool: string; reason: string; preview: string }
+  | { type: 'approval_resolved'; taskId: string; tool: string; approved: boolean }
   | { type: 'steps_updated'; taskId: string; extraSteps: number }
   | { type: 'task_started'; taskId: string; title: string }
   | { type: 'task_completed'; taskId: string; title: string }
@@ -94,6 +103,51 @@ export type ExecutionEvent =
   | { type: 'governor_update'; taskId: string; turnsUsed: number; maxTurns: number; tokensUsed: number; maxTokens: number };
 
 export type OnEvent = (event: ExecutionEvent) => void;
+
+export interface ExecutionActor {
+  kind: 'executor' | 'worker' | 'planner' | 'reviewer' | 'system';
+  id?: string;
+}
+
+export interface ExecutionEnvelopeOptions {
+  runId: string;
+  missionId: string;
+  taskId?: string;
+  attempt?: number;
+  sequence: number;
+  timestamp?: string;
+  actor?: ExecutionActor;
+}
+
+export interface ExecutionEnvelope {
+  version: 1;
+  runId: string;
+  missionId: string;
+  taskId?: string;
+  attempt: number;
+  sequence: number;
+  timestamp: string;
+  actor: ExecutionActor;
+  event: ExecutionEvent;
+}
+
+/** Wrap a legacy live event with the identity required for durable replay. */
+export function createExecutionEnvelope(
+  event: ExecutionEvent,
+  options: ExecutionEnvelopeOptions,
+): ExecutionEnvelope {
+  return {
+    version: 1,
+    runId: options.runId,
+    missionId: options.missionId,
+    ...(options.taskId ? { taskId: options.taskId } : {}),
+    attempt: options.attempt ?? 1,
+    sequence: options.sequence,
+    timestamp: options.timestamp ?? new Date().toISOString(),
+    actor: options.actor ?? { kind: 'executor' },
+    event,
+  };
+}
 
 // ── Hook System ──────────────────────────────────────────────────────────────
 
@@ -246,4 +300,6 @@ export interface GoalJudgeResult {
   unmetCriteria: string[];
   /** Human-readable feedback when blocked. */
   feedback?: string;
+  /** Non-blocking repository-history warnings. */
+  auditWarnings?: string[];
 }

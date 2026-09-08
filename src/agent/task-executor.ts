@@ -15,9 +15,10 @@ import {
   estimateMessagesTokens 
 } from './context-manager.js';
 import { compact } from './compaction/compaction.js';
-import { getModelSpecificPrompt } from './model-prompts.js';
+import { getModelSpecificPrompt, getSmallModelRuntimeProfile } from './model-prompts.js';
 import { ReconstructionController } from './context-reconstruction.js';
 import { Governor } from './governor.js';
+import { consumeChatCompletionStream, isAsyncChatCompletionStream } from './stream-adapter.js';
 
 /** Type guard — narrows `BeforeToolCallResult | void | undefined` to `BeforeToolCallResult`. */
 function isBlockResult(v: BeforeToolCallResult | void | undefined): v is BeforeToolCallResult {
@@ -254,6 +255,7 @@ export class TaskExecutor {
     onEvent?: OnEvent,
     getYoloMode: () => boolean = () => config.YOLO_MODE,
     techStack?: string[],
+    executionContext?: { runId?: string; missionId?: string; attempt?: number },
   ): Promise<Task> {
     if (this.hooks?.reset) {
       this.hooks.reset(task);
@@ -262,12 +264,28 @@ export class TaskExecutor {
 
     // Trace: initialise recorder for this run
     const { createTraceRecorder } = await import('./trace.js') as typeof import('./trace.js');
-    const trace = createTraceRecorder(task.id, 'session');
+    const trace = createTraceRecorder(task.id, 'session', {
+      workspaceRoot,
+      runId: executionContext?.runId,
+      missionId: executionContext?.missionId,
+      attempt: executionContext?.attempt ?? task.attemptCount ?? 1,
+    });
 
-    /** Emit to both the live TUI and the persistent trace file. */
+    /**
+     * Emit to the live TUI, and to the persistent trace file for everything but
+     * token deltas. Deltas are a rendering concern: journalling one envelope per
+     * token would make the trace orders of magnitude larger than the run it
+     * records, and the coalesced `thinking`/`output` events carry the same content.
+     */
     const emit = (evt: ExecutionEvent) => {
       onEvent?.(evt);
-      trace.event(evt).catch(() => {});
+      if (evt.type !== 'thinking_delta' && evt.type !== 'output_delta') {
+        void trace.event(evt);
+      }
+    };
+    const finish = async (result: Task): Promise<Task> => {
+      await trace.flush();
+      return result;
     };
 
     let memoriesSection = '';
@@ -401,18 +419,18 @@ ${memoriesSection}`;
     let hasCalledAnyTool = false;
 
     const governor = new Governor({
-      maxTurns: isYolo ? 9999 : (config.MAX_STEPS + (task.extraSteps || 0)),
+      maxTurns: isYolo ? 9999 : ((getSmallModelRuntimeProfile(resolvedTaskModel, config.SMALL_MODEL_PROFILE)?.maxSteps ?? config.MAX_STEPS) + (task.extraSteps || 0)),
       maxTokens: config.CONTEXT_WINDOW,
       thrashThreshold: 3,
     });
 
     for (let step = 0; ; step++) {
       const isYoloNow = getYoloMode();
-      const currentMax = isYoloNow ? 9999 : (config.MAX_STEPS + (task.extraSteps || 0));
+      const currentMax = isYoloNow ? 9999 : ((getSmallModelRuntimeProfile(resolvedTaskModel, config.SMALL_MODEL_PROFILE)?.maxSteps ?? config.MAX_STEPS) + (task.extraSteps || 0));
 
       if (governor.isTurnLimitExceeded(step)) {
         currentTask = { ...currentTask, status: 'failed', error: 'Max steps exceeded' };
-        return currentTask;
+        return finish(currentTask);
       }
 
       try {
@@ -453,7 +471,7 @@ ${memoriesSection}`;
         
         if (governor.isTokenLimitExceeded(stats.used)) {
           currentTask = { ...currentTask, status: 'failed', error: `Context token limit exceeded: ${stats.used}/${config.CONTEXT_WINDOW} tokens` };
-          return currentTask;
+          return finish(currentTask);
         }
 
         onEvent?.({ type: 'context_update', used: stats.used, total: stats.total, percentage: stats.percentage });
@@ -483,6 +501,7 @@ ${memoriesSection}`;
           model: taskModel,
           messages: apiMessages,
           temperature: isYoloNow ? 0.9 : 0.7,
+          ...(config.ENABLE_STREAMING ? { stream: true } : {}),
         };
 
         if (config.ENABLE_NATIVE_TOOLS !== false) {
@@ -494,7 +513,15 @@ ${memoriesSection}`;
 
         const response = await getOllamaClient(isReviewerModel ? 'reviewer' : 'main').chat.completions.create(requestOptions);
 
-        let message = response.choices[0].message;
+        let message: any;
+        if (isAsyncChatCompletionStream(response)) {
+          message = await consumeChatCompletionStream(response, delta => {
+            if (delta.kind === 'thinking') emit({ type: 'thinking_delta', content: delta.content });
+            if (delta.kind === 'content') emit({ type: 'output_delta', content: delta.content });
+          });
+        } else {
+          message = response.choices[0].message;
+        }
         logObject('Agent Step Response', message);
 
         // ── Reasoning extraction + strip ───────────────────────────
@@ -515,7 +542,7 @@ ${memoriesSection}`;
           }
         }
         if (thinkingContent) {
-          onEvent?.({ type: 'thinking', content: thinkingContent.trim() });
+          emit({ type: 'thinking', content: thinkingContent.trim() });
         }
 
         // Strip ALL <think> blocks (global flag) and reasoning field from the message
@@ -555,7 +582,7 @@ ${memoriesSection}`;
           
           if (blankCount >= 3) {
             currentTask = { ...currentTask, status: 'failed', error: 'Agent stuck in blank response loop (3+ empty turns)' };
-            return currentTask;
+            return finish(currentTask);
           }
 
           // Inject a steer message to nudge the model
@@ -578,7 +605,7 @@ ${memoriesSection}`;
           if (stop) {
             log('shouldStopAfterTurn hook stopped after text answer', 'INFO');
             currentTask = { ...currentTask, status: 'done', output: message.content };
-            return currentTask;
+            return finish(currentTask);
           }
         }
 
@@ -621,14 +648,14 @@ ${memoriesSection}`;
               }
             }
 
-            onEvent?.({
+            emit({
               type: 'tool_call',
               tool: toolCall.function.name,
               args: parsed ? args : toolCall.function.arguments,
             });
 
             if (!parsed) {
-              onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
+              emit({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
               logObject(`Tool Parse Error [${toolCall.function.name}]`, preResult);
               messages.push({
                 role: 'tool',
@@ -641,7 +668,7 @@ ${memoriesSection}`;
             const tool = minionTools.find(t => t.name === toolCall.function.name);
             if (!tool) {
               preResult = { success: false, error: `Tool ${toolCall.function.name} not found` };
-              onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
+              emit({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
               messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(preResult) });
               continue;
             }
@@ -660,7 +687,7 @@ ${memoriesSection}`;
               } else {
                 log(`Tool arg parse failed [${toolCall.function.name}]: ${parseResult.error.message}`, 'WARN');
                 preResult = { success: false, error: `Invalid tool arguments: ${parseResult.error.message}` };
-                onEvent?.({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
+                emit({ type: 'tool_result', tool: toolCall.function.name, result: preResult });
                 messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(preResult) });
                 continue;
               }
@@ -739,7 +766,7 @@ ${memoriesSection}`;
                 const result  = results as ToolResult[];
 
                 const r = result[i];
-                onEvent?.({ type: 'tool_result', tool: entry.toolCall.function.name, result: r });
+                emit({ type: 'tool_result', tool: entry.toolCall.function.name, result: r });
                 logObject(`Tool Result [${entry.toolCall.function.name}] (parallel, ${elapsedMs} ms total)`, r);
                 const resultStr = this.formatToolResult(r);
                 const truncatedResult = truncateToolResult(resultStr, entry.toolCall.function.name);
@@ -754,7 +781,7 @@ ${memoriesSection}`;
               for (const entry of preflight) {
                 const res = await entry.run();
                 turnResults.push(res);
-                onEvent?.({ type: 'tool_result', tool: entry.toolCall.function.name, result: res });
+                emit({ type: 'tool_result', tool: entry.toolCall.function.name, result: res });
                 logObject(`Tool Result [${entry.toolCall.function.name}]`, res);
                 const resultStr = this.formatToolResult(res);
                 const truncatedResult = truncateToolResult(resultStr, entry.toolCall.function.name);
@@ -772,7 +799,7 @@ ${memoriesSection}`;
             if (circuitBreakerTripped || stop) {
               log('Governor or hook stopped execution after tool results (circuit breaker / thrash detection)', 'WARN');
               currentTask = { ...currentTask, status: 'failed', error: 'Agent loop stopped by safety circuit breaker (potential infinite loop)' };
-              return currentTask;
+              return finish(currentTask);
             }
           }
         } else if (message.content) {
@@ -781,25 +808,25 @@ ${memoriesSection}`;
           // what they would do instead of actually doing it.
           if (!hasCalledAnyTool && step < 3) {
             log('Text-only completion attempted with no prior tool calls — nudging model', 'WARN');
-            onEvent?.({ type: 'output', content: message.content });
+            emit({ type: 'output', content: message.content });
             messages.push({ role: 'user', content: '[SYSTEM]: You provided a summary but never used any tools to create files. You MUST use tools (file_write, shell, etc.) to actually create the required files before completing this task.' });
             continue;
           }
           log(`Task output: ${message.content.slice(0, 100)}...`, 'INFO');
-          onEvent?.({ type: 'output', content: message.content });
+          emit({ type: 'output', content: message.content });
           currentTask = { ...currentTask, status: 'done', output: message.content };
-          return currentTask;
+          return finish(currentTask);
         }
       } catch (error: any) {
         log(`Task error: ${error.message}`, 'ERROR');
-        onEvent?.({ type: 'error', message: error.message });
+        emit({ type: 'error', message: error.message });
         currentTask = { ...currentTask, status: 'failed', error: error.message };
-        return currentTask;
+        return finish(currentTask);
       }
     }
 
     currentTask = { ...currentTask, status: 'failed', error: 'Max steps exceeded' };
-    return currentTask;
+    return finish(currentTask);
   }
 }
 

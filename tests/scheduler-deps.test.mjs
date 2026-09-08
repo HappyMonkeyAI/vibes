@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { describeDependencyDeadlock } from '../dist/agent/scheduler-deps.js';
+import { describeDependencyDeadlock, getExecutionConcurrency } from '../dist/agent/scheduler-deps.js';
 
 test('describeDependencyDeadlock detects circular pending dependencies', () => {
   const tasks = [
@@ -22,4 +22,12 @@ test('describeDependencyDeadlock returns null when a task is runnable', () => {
     { id: 'style', title: 'Add Component Styling', status: 'todo', depends_on: ['card'] },
   ];
   assert.equal(describeDependencyDeadlock(tasks, new Set()), null);
+});
+
+test('reviewed code tasks are serialized against a shared mutable workspace', () => {
+  const tasks = [
+    { id: 'one', title: 'One', status: 'todo', type: 'code', depends_on: [] },
+    { id: 'two', title: 'Two', status: 'todo', type: 'code', depends_on: [] },
+  ];
+  assert.equal(getExecutionConcurrency(tasks, 4, true), 1);
 });

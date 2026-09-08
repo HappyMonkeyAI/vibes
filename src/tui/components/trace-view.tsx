@@ -13,6 +13,10 @@ function formatEvent(evt: ExecutionEvent, index: number): string {
   switch (evt.type) {
     case 'thinking':
       return `${label} [THINK] ${evt.content.slice(0, 200)}`;
+    case 'thinking_delta':
+      return `${label} [THINK▸] ${evt.content.slice(0, 200)}`;
+    case 'output_delta':
+      return `${label} [OUT▸]  ${evt.content.slice(0, 200)}`;
     case 'tool_call':
       return `${label} [TOOL]  ${evt.tool}(${JSON.stringify(evt.args).slice(0, 120)})`;
     case 'tool_result':

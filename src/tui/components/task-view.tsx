@@ -1,13 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { ExecutionEvent } from '../../agent/types.js';
+import type { RunRecord } from '../../agent/run-registry.js';
 
 interface TaskViewProps {
   events: ExecutionEvent[];
   isExecuting: boolean;
+  runSummaries?: RunRecord[];
+  /** Coalesced streaming buffers — deltas never enter `events`. */
+  liveThinking?: string;
+  liveOutput?: string;
+  eventBacklog?: number;
 }
 
-export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuting }) => {
+/** Show the trailing edge of a stream: that is where the new tokens land. */
+function tail(text: string, limit: number): string {
+  return text.length > limit ? `…${text.slice(-limit)}` : text;
+}
+
+export const TaskView: React.FC<TaskViewProps> = React.memo(({
+  events,
+  isExecuting,
+  runSummaries = [],
+  liveThinking = '',
+  liveOutput = '',
+  eventBacklog = 0,
+}) => {
   const [dots, setDots] = useState('');
 
   // Heartbeat animation
@@ -30,8 +48,41 @@ export const TaskView: React.FC<TaskViewProps> = React.memo(({ events, isExecuti
       <Box paddingBottom={1}>
         <Text bold color="yellow">Live Agent Execution</Text>
         {isExecuting && <Text color="yellow"> {dots}</Text>}
+        {eventBacklog > 0 && <Text color="gray" dimColor> ({eventBacklog} buffered)</Text>}
       </Box>
+      {runSummaries.length > 0 && (
+        <Box flexDirection="column" paddingBottom={1}>
+          <Text bold color="magenta">Worker Runs</Text>
+          {runSummaries.slice(-6).map(run => (
+            <Box key={run.runId}>
+              <Text color={run.status === 'failed' ? 'red' : run.status === 'completed' ? 'green' : 'yellow'}>
+                {run.status.toUpperCase().padEnd(9)}
+              </Text>
+              <Text color="cyan"> {run.taskId}</Text>
+              <Text color="gray"> attempt {run.attempt}</Text>
+              {run.currentTool && <Text color="gray"> · {run.currentTool}</Text>}
+            </Box>
+          ))}
+        </Box>
+      )}
       
+      {isExecuting && (liveThinking || liveOutput) && (
+        <Box flexDirection="column" paddingBottom={1}>
+          {liveThinking && (
+            <Box>
+              <Text color="blue" italic>Thinking ▸ </Text>
+              <Text color="gray" dimColor>{tail(liveThinking, 200)}</Text>
+            </Box>
+          )}
+          {liveOutput && (
+            <Box>
+              <Text color="green">Output ▸ </Text>
+              <Text color="green">{tail(liveOutput, 200)}</Text>
+            </Box>
+          )}
+        </Box>
+      )}
+
       <Box flexDirection="column">
         {events.slice(-15).map((event, idx) => {
           switch (event.type) {

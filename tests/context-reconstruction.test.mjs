@@ -9,7 +9,7 @@ test('ReconstructionController.shouldReconstruct respect threshold and enabled f
   const controller = new ReconstructionController({ enabled: true, threshold: 0.5 });
   
   // Mock messages that would exceed 50% budget
-  const hugeMessage = 'a'.repeat(60000); 
+  const hugeMessage = 'a'.repeat(20000);
   const messages = [{ role: 'user', content: hugeMessage }];
   
   assert.strictEqual(controller.shouldReconstruct(messages), false, 'Should be false below 50%');

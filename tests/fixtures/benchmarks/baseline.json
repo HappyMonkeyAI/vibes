@@ -1,0 +1,14 @@
+{
+  "name": "vibes-harness-core",
+  "workloads": {
+    "envelope10k": 10000,
+    "stream100Chunks": 100,
+    "liveViewModel1kDeltas": 1000
+  },
+  "thresholdsMs": {
+    "coldStart": 1000,
+    "envelope10k": 250,
+    "stream100Chunks": 100,
+    "liveViewModel1kDeltas": 100
+  }
+}

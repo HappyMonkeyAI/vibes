@@ -11,7 +11,7 @@ You are an autonomous developer agent working on **Vibes**, a high-performance t
 
 ### 4. Rule Discovery & Awareness
 - **Cumulative Ingestion**: Vibes automatically scans for `AGENTS.md`, `DESIGN.md`, and `.cursorrules`. You must respect the union of all found rules.
-- **LTM as Ground Truth**: Before a mission, check `.antigravity/memories/` for historical context. After a mission, update the memory.
+- **LTM as Ground Truth**: Before a mission, check `.agent/memories/` for historical context. After a mission, update the memory.
 
 ## 🛠 Technical Standards
 
@@ -34,8 +34,19 @@ You are an autonomous developer agent working on **Vibes**, a high-performance t
 - **Cleanup**: If you start a long-running background process, ensure it is tracked or cleaned up.
 
 ## 🗄 Long-Term Memory (LTM)
-- **Update the Memory**: When you complete a mission, or if you encounter a significant architectural hurdle, update the relevant file in `.antigravity/memories/`.
-- **Patterns & Lessons**: Document any new "Success Patterns" or "Failure Lessons" in `.antigravity/memories/patterns_and_lessons.md`.
+- **Update the Memory**: When you complete a mission, or if you encounter a significant architectural hurdle, update the relevant file in `.agent/memories/`.
+- **Patterns & Lessons**: Document any new "Success Patterns" or "Failure Lessons" in `.agent/memories/patterns_and_lessons.md`.
+
+### Agents Protocol compatibility
+This repository adopts the [HappyMonkeyAI Agents Protocol](https://github.com/HappyMonkeyAI/AgentsProtocol/blob/main/BOOTSTRAP.md) additively.
+
+- Canonical protocol memory: `.agent/memories/`
+- Semantic insights: `.agent/memories/codebase_insights/`
+- Architectural decisions: `.agent/memories/architectural_decisions/`
+- Procedural lessons: `.agent/memories/patterns_and_lessons.md`
+- Episodic history: `.agent/memories/history/`
+- Existing `.antigravity/memories/` is preserved as legacy compatibility and historical source material; do not delete or silently rewrite it.
+- New entries must be grounded in current source, tests, docs, or verified Git history. Upstream bootstrap examples are schema guidance, not facts about Vibes.
 
 ## ✅ Acceptance Criteria for Your Work
 - Code must pass `npm run build` (TypeScript validation).
@@ -47,7 +58,7 @@ You are an autonomous developer agent working on **Vibes**, a high-performance t
 ---
 
 ## 1. The Trinity Orchestration (Self-Evolution)
-[AG-01] **Echo (Online Semantic Synthesis):** Continuously scan for repetition. Solve bugs or patterns once. When extracting lessons to `.antigravity/memories/patterns_and_lessons.md`, use **Iterative Synthesis**: do not simply append or overwrite; incorporate new findings into existing abstractions while preserving historical context. Ensure memories are stored as absolute, self-contained facts rather than fragmented logs.
+[AG-01] **Echo (Online Semantic Synthesis):** Continuously scan for repetition. Solve bugs or patterns once. When extracting lessons to `.agent/memories/patterns_and_lessons.md`, use **Iterative Synthesis**: do not simply append or overwrite; incorporate new findings into existing abstractions while preserving historical context. Ensure memories are stored as absolute, self-contained facts rather than fragmented logs.
 [AG-02] **Ripple (Dependency Awareness & Blast Radius):** Map the "blast radius" before any non-trivial change. Trace callers, dependencies, and test coverage gaps structurally. Do not read entire unrelated source files; build a minimal structural context map first (DB schemas -> API types -> Frontend interfaces) to preserve tokens and precision.
 [AG-03] **Pulse (Velocity Monitor):** If a task requires >3 corrections or tests fail repeatedly, **STOP**. Do not force a failing path. Revert, re-plan, and find the lower-gravity approach.
 [AG-04] **Upstream Pulse (Protocol Sync):** At the beginning of every session, check for updates from the remote origin (`SPhillips1337/AntigravityAgentsPromptProtocol`). If updates exist, notify the user and await confirmation before incorporating changes. Only proceed with update after user approval to prevent conflicts with uncommitted work.
@@ -69,7 +80,7 @@ All memory is classified into three types. This taxonomy governs how memories ar
 | **Episodic** | Events, decisions, outcomes, timelines | `history/` |
 | **Procedural** | Workflows, patterns, guardrails, lessons | `patterns_and_lessons.md` |
 
-### Persistent Store: `.antigravity/memories/`
+### Persistent Store: `.agent/memories/`
 Agents MUST maintain and query the following persistent memory segments:
 - **`codebase_insights/`**: High-level summaries of complex modules, hidden logic, and "why" behind counter-intuitive code. *(Semantic)*
 - **`architectural_decisions/`**: Logs of major design choices, technology tradeoffs, and future-proofing strategies. *(Semantic)*
@@ -90,10 +101,10 @@ confidence: high | medium | low
 ```
 
 ### Protocol
-1. **Pre-Task Enrichment:** Before any execution, query `.antigravity/memories/` using relevant tags (language, domain, component). Inject findings as structured context — not raw file dumps. Proceed with enriched understanding, not baseline LLM knowledge.
+1. **Pre-Task Enrichment:** Before any execution, query `.agent/memories/` using relevant tags (language, domain, component). Inject findings as structured context — not raw file dumps. Proceed with enriched understanding, not baseline LLM knowledge.
 2. **Post-Task Synthesis:** Upon completion, update the LTM. Consolidate related fragments. Update abstract representations rather than appending redundant logs. Stored units must be highly compressed and context-independent.
 3. **Memory Reconciliation:** Every 10 major synthesis cycles, perform a "Truth Audit". Compare LTM entries against the *current* source code. If the code has evolved beyond the memory, update or prune the memory immediately to prevent "Semantic Drift."
-4. **Artifact Archiving:** All finalized `implementation_plan.md` and `walkthrough.md` files MUST be moved to `.antigravity/memories/history/[implementation_plans|walkthroughs]/` and prefixed with a `YYYYMMDD_HHMMSS_` timestamp.
+4. **Artifact Archiving:** All finalized `implementation_plan.md` and `walkthrough.md` files MUST be moved to `.agent/memories/history/[implementation_plans|walkthroughs]/` and prefixed with a `YYYYMMDD_HHMMSS_` timestamp.
 
 ---
 
@@ -202,7 +213,7 @@ Before finalizing any code (Verify phase), run a parallel audit using Gemini sub
 
 ## 12. Session Handoff & Compression
 To prevent context amnesia and token burn across sessions:
-- **Handoff Generation:** Upon request or session end, generate a 30-line `.antigravity/memories/history/handoffs/YYYYMMDD_HHMMSS_handoff.md`.
+- **Handoff Generation:** Upon request or session end, generate a 30-line `.agent/memories/history/handoffs/YYYYMMDD_HHMMSS_handoff.md`.
 - **Handoff Content:** Status (Phase/Step), Key Decisions (1 line each), Modified Files, Next Steps (ordered list), Blockers.
 - **Compression:** Use the `/compress` command to shrink memory artifacts by 40-50% (dropping articles, filler, and hedging while preserving code/paths).
 

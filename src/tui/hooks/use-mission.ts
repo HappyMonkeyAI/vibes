@@ -12,6 +12,13 @@ import { config } from '../../config.js';
 import { getMCPService } from '../../mcp/mcp-service.js';
 import { getSessionService, SessionData } from '../../agent/session-service.js';
 import { formatModelProviderError } from '../../ollama-client.js';
+import { applyLiveEvents, createLiveEventState, flushLiveEventState, isStreamDeltaEvent } from '../event-view-model.js';
+import { createApprovalHook, parseDenyPatterns } from '../../agent/approval-policy.js';
+import type { RunRecord } from '../../agent/run-registry.js';
+
+export type PendingPrompt =
+  | { kind: 'failure'; taskId: string; error: string; question: string }
+  | { kind: 'tool_approval'; taskId: string; tool: string; reason: string; preview: string };
 
 export const useMission = () => {
   const [mission, setMission] = useState<Mission | null>(null);
@@ -21,12 +28,16 @@ export const useMission = () => {
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
   const [contextUsage, setContextUsage] = useState<{ used: number; total: number; percentage: number } | null>(null);
-  const [pendingIntervention, setPendingIntervention] = useState<{ taskId: string; error: string; question: string } | null>(null);
+  const [pendingIntervention, setPendingIntervention] = useState<PendingPrompt | null>(null);
   const [activeMaxSteps, setActiveMaxSteps] = useState(config.MAX_STEPS);
   const [isYoloMode, setIsYoloMode] = useState(config.YOLO_MODE);
   const [sessions, setSessions] = useState<SessionData[]>([]);
   const [triageState, setTriageState] = useState<{ state: 'watching' | 'guiding' | 'escalated'; message?: string } | null>(null);
   const [governorStats, setGovernorStats] = useState<{ turnsUsed: number; maxTurns: number; tokensUsed: number; maxTokens: number } | null>(null);
+  const [liveThinking, setLiveThinking] = useState('');
+  const [liveOutput, setLiveOutput] = useState('');
+  const [eventBacklog, setEventBacklog] = useState(0);
+  const [runSummaries, setRunSummaries] = useState<RunRecord[]>([]);
 
   // Hold a direct ref to the running scheduler so we can resolve interventions on it
   const schedulerRef = useRef<Scheduler | null>(null);
@@ -36,6 +47,7 @@ export const useMission = () => {
   // Event buffer for throttled rendering — prevents re-render storming
   const eventBufferRef = useRef<ExecutionEvent[]>([]);
   const allEventsRef = useRef<ExecutionEvent[]>([]);
+  const liveEventStateRef = useRef(createLiveEventState());
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushEvents = useCallback(() => {
     if (flushTimerRef.current) {
@@ -46,11 +58,18 @@ export const useMission = () => {
     const buffered = eventBufferRef.current;
     eventBufferRef.current = [];
 
-    setEvents([...allEventsRef.current]);
+    liveEventStateRef.current = applyLiveEvents(liveEventStateRef.current, buffered);
+    const flushedBacklog = liveEventStateRef.current.backlog;
+    liveEventStateRef.current = flushLiveEventState(liveEventStateRef.current);
+    setLiveThinking(liveEventStateRef.current.activeThinking);
+    setLiveOutput(liveEventStateRef.current.activeOutput);
+    setEventBacklog(flushedBacklog);
+    setEvents([...liveEventStateRef.current.completed]);
 
     if (schedulerRef.current) {
       const currentMission = { ...schedulerRef.current.mission };
       setMission(currentMission);
+      setRunSummaries(schedulerRef.current.runs);
 
       // Only save session on significant events to minimize disk writes
       const shouldSave = buffered.some(evt =>
@@ -106,6 +125,11 @@ export const useMission = () => {
     setError(null);
     setEvents([]);
     allEventsRef.current = [];
+    liveEventStateRef.current = createLiveEventState();
+    setLiveThinking('');
+    setLiveOutput('');
+    setEventBacklog(0);
+    setRunSummaries([]);
     setContextUsage(null);
     setPendingMission(null);
     setPendingIntervention(null);
@@ -141,7 +165,7 @@ export const useMission = () => {
         spawnSync('git', ['add', '-A'], { cwd: plan.workspace_root });
         spawnSync(
           'git',
-          ['commit', '-m', `vibes: initial workspace snapshot ${plan.id}`],
+          ['commit', '--allow-empty', '-m', `vibes: initial workspace snapshot ${plan.id}`],
           { cwd: plan.workspace_root },
         );
       } else {
@@ -179,6 +203,13 @@ export const useMission = () => {
       ];
       const triage = config.TRIAGE_ENABLED ? new TriageAgent(config.TRIAGE_AUTO_STEER) : null;
       const baseHooks = createDefaultHooks(() => isYoloRef.current);
+      if (config.APPROVAL_MODE !== 'legacy') {
+        baseHooks.beforeToolCall = createApprovalHook(
+          { mode: config.APPROVAL_MODE, denyPatterns: parseDenyPatterns(config.APPROVAL_DENY_PATTERNS) },
+          // schedulerRef is populated below, before scheduler.run() can trigger a tool call.
+          request => schedulerRef.current?.requestToolApproval(request) ?? Promise.resolve(false),
+        );
+      }
       const executor = new TaskExecutor(tools, {
         getYoloMode: () => isYoloRef.current,
         hooks: triage ? withTriageHooks(baseHooks, triage) : baseHooks,
@@ -189,7 +220,19 @@ export const useMission = () => {
           setContextUsage({ used: event.used, total: event.total, percentage: event.percentage });
         }
         if (event.type === 'intervention_required') {
-          setPendingIntervention({ taskId: event.taskId, error: event.error, question: event.question });
+          setPendingIntervention({ kind: 'failure', taskId: event.taskId, error: event.error, question: event.question });
+        }
+        if (event.type === 'approval_required') {
+          setPendingIntervention({
+            kind: 'tool_approval',
+            taskId: event.taskId,
+            tool: event.tool,
+            reason: event.reason,
+            preview: event.preview,
+          });
+        }
+        if (event.type === 'approval_resolved') {
+          setPendingIntervention(current => (current?.kind === 'tool_approval' ? null : current));
         }
         if (event.type === 'steps_updated') {
           setActiveMaxSteps(config.MAX_STEPS + event.extraSteps);
@@ -208,7 +251,9 @@ export const useMission = () => {
 
         // Buffer events and flush periodically to avoid re-render storming
         eventBufferRef.current.push(event);
-        allEventsRef.current.push(event);
+        if (!isStreamDeltaEvent(event)) {
+          allEventsRef.current.push(event);
+        }
         const MAX_EVENTS = 1000;
         if (allEventsRef.current.length > MAX_EVENTS) {
           allEventsRef.current = allEventsRef.current.slice(allEventsRef.current.length - MAX_EVENTS);
@@ -218,7 +263,10 @@ export const useMission = () => {
         }
       };
 
-      const scheduler = new Scheduler(plan, executor, onEvent, () => isYoloRef.current);
+      const persistSchedulerState = async (currentMission: Mission) => {
+        await sessionService.saveSession(currentMission, [...allEventsRef.current], { readFiles: [], modifiedFiles: [] });
+      };
+      const scheduler = new Scheduler(plan, executor, onEvent, () => isYoloRef.current, persistSchedulerState);
       if (triage) scheduler.triageAgent = triage;
       schedulerRef.current = scheduler;
 
@@ -247,6 +295,7 @@ export const useMission = () => {
         await sessionService.saveSession(currentMission, [...allEventsRef.current], { readFiles: [], modifiedFiles: [] });
       }
     } finally {
+      schedulerRef.current?.abortPendingApproval();
       setIsExecuting(false);
       setPendingIntervention(null);
       schedulerRef.current = null;
@@ -264,6 +313,12 @@ export const useMission = () => {
     if (schedulerRef.current) {
       schedulerRef.current.resolveIntervention({ action, message });
     }
+  }, []);
+
+  /** Answers a pending `ask` decision from the approval policy. */
+  const resolveToolApproval = useCallback((approved: boolean) => {
+    setPendingIntervention(null);
+    schedulerRef.current?.resolveToolApproval(approved);
   }, []);
 
   const rejectMission = useCallback(() => {
@@ -324,6 +379,10 @@ export const useMission = () => {
     isExecuting,
     error,
     events,
+    liveThinking,
+    liveOutput,
+    eventBacklog,
+    runSummaries,
     contextUsage,
     pendingIntervention,
     activeMaxSteps,
@@ -335,6 +394,7 @@ export const useMission = () => {
     approveMission,
     rejectMission,
     resolveIntervention,
+    resolveToolApproval,
     toggleYoloMode,
     resetMission,
     undoMission,
