@@ -282,14 +282,48 @@ export class Scheduler {
         }
       }
 
-      this._mission.status = completion.approved ? 'completed' : 'failed';
-
-      if (!completion.approved) {
+      if (completion.approved) {
+        this._mission.status = 'completed';
+      } else {
         const reason = `Mission completion gate rejected success: ${completion.reasons.join('; ')}`;
         log(reason, 'ERROR');
         this.onEvent?.({ type: 'task_failed', taskId: '', title: 'Mission Completion Gate', error: reason });
+
+        // Same Decision + Needs-You path as per-task failure (T50b): escalate waits
+        // on resolve_intervention; clear auto skip accepts the mission.
+        this._mission.status = 'awaiting_intervention';
+        const auto = await maybeAutoResolveIntervention({
+          missionTitle: this._mission.title,
+          taskTitle: 'Mission Completion Gate',
+          error: reason,
+        });
+        let resolution: InterventionResolution;
+        if (auto) {
+          log(`Decision gate auto-resolved completion intervention: ${auto.action}`, 'INFO');
+          resolution = { action: auto.action, message: auto.message };
+        } else {
+          resolution = await new Promise<InterventionResolution>((resolve) => {
+            this.interventionResolve = resolve;
+            this.onEvent?.({
+              type: 'intervention_required',
+              taskId: '',
+              title: 'Mission Completion Gate',
+              error: reason,
+              question: reason,
+            });
+          });
+        }
+        if (resolution.action === 'skip') {
+          this._mission.status = 'completed';
+          log('Completion gate accepted via skip (Decision or operator)', 'INFO');
+        } else if (resolution.action === 'retry' || resolution.action === 'reply') {
+          // No clean re-run of Owner review yet — surface as failed after operator retry.
+          this._mission.status = 'failed';
+        } else {
+          this._mission.status = 'failed';
+        }
       }
-      
+
       // Memento Pattern: Persist mission summary into long-term memory
       if (this._mission.status === 'completed') {
         const completedTaskTitles = this._mission.milestones.flatMap(m => m.tasks).filter(t => t.status === 'done').map(t => t.title);
