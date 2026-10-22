@@ -21,6 +21,36 @@ const mcp = new FastMCP({ name: 'Vibes', version: '1.0.0' });
 let currentMission: Mission | null = null;
 let currentScheduler: Scheduler | null = null;
 
+/** Emit structured stderr lines the desktop bridge parses into the ledger. */
+function emitDesktopTaskStatus(event: {
+  type: string;
+  title?: string;
+  error?: string;
+  question?: string;
+  taskId?: string;
+}): void {
+  log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
+  if (event.type === 'task_started') {
+    console.error(`[TASK_STATUS] ${JSON.stringify({ name: event.title, status: 'in-progress' })}`);
+  } else if (event.type === 'task_completed') {
+    console.error(`[TASK_STATUS] ${JSON.stringify({ name: event.title, status: 'complete' })}`);
+  } else if (event.type === 'task_failed') {
+    console.error(`[TASK_STATUS] ${JSON.stringify({
+      name: event.title,
+      status: 'failed',
+      error: event.error || 'Unknown error',
+    })}`);
+  } else if (event.type === 'intervention_required') {
+    // Desktop → Needs You (blocked + needsHuman); operator resolves via resolve_intervention.
+    console.error(`[TASK_STATUS] ${JSON.stringify({
+      name: event.title || 'Needs operator',
+      status: 'intervention',
+      detail: event.question || event.error || 'Operator intervention required',
+      taskId: event.taskId || undefined,
+    })}`);
+  }
+}
+
 mcp.addTool({
   name: 'execute_mission',
   description: 'Plan and execute a mission in the current workspace.',
@@ -48,18 +78,7 @@ mcp.addTool({
       const executor = new TaskExecutor(tools);
 
       const scheduler = new Scheduler(plan, executor, (event) => {
-        log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
-        if (event.type === 'task_started') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "in-progress"}`);
-        } else if (event.type === 'task_completed') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "complete"}`);
-        } else if (event.type === 'task_failed') {
-          console.error(`[TASK_STATUS] ${JSON.stringify({
-            name: (event as any).title,
-            status: 'failed',
-            error: (event as any).error || 'Unknown error',
-          })}`);
-        }
+        emitDesktopTaskStatus(event as any);
       });
 
       currentScheduler = scheduler;
@@ -117,18 +136,7 @@ mcp.addTool({
       const executor = new TaskExecutor(tools);
 
       const scheduler = new Scheduler(currentMission, executor, (event) => {
-        log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
-        if (event.type === 'task_started') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "in-progress"}`);
-        } else if (event.type === 'task_completed') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "complete"}`);
-        } else if (event.type === 'task_failed') {
-          console.error(`[TASK_STATUS] ${JSON.stringify({
-            name: (event as any).title,
-            status: 'failed',
-            error: (event as any).error || 'Unknown error',
-          })}`);
-        }
+        emitDesktopTaskStatus(event as any);
       });
       
       currentScheduler = scheduler;

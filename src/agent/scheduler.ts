@@ -354,6 +354,7 @@ export class Scheduler {
         this.onEvent?.({
           type: 'intervention_required',
           taskId: this.triageAgent?.currentTaskId || '',
+          title: 'Triage escalation',
           error: `Triage escalation: ${action.reason}`,
           question: `The triage observer recommends intervention:\n\n${action.reason}\n\nWhat would you like to do?`,
         });
@@ -590,6 +591,7 @@ export class Scheduler {
         this.onEvent?.({
           type: 'intervention_required',
           taskId: task.id,
+          title: task.title,
           error: task.error || 'Unknown error',
           question,
         });
