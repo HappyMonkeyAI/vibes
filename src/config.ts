@@ -56,6 +56,10 @@ export const ConfigSchema = z.object({
   CODEX_PYTHON_PATH: z.string().default(''),
   ENABLE_CONTEXT_RECONSTRUCTION: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
   VIBES_LAUNCH_DIR: z.string().default(''),
+  /** T26 — KEV decision MCP for intervene-vs-continue before operator interrupt. */
+  KEV_MCP_URL: z.string().default(''),
+  KEV_MCP_AUTH_TOKEN: z.string().default(''),
+  ENABLE_DECISION_INTERVENE_GATE: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

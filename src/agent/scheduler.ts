@@ -17,6 +17,7 @@ import { traceFilePath } from './trace.js';
 import { createContextPack, createEvidenceHandoff } from './protocol-contracts.js';
 import { evaluateMissionCompletion } from './mission-integrator.js';
 import { doubleCheckMissionEvidence } from './mission-double-check.js';
+import { maybeAutoResolveIntervention } from './decision-mcp.js';
 import { Reviewer, validateReviewerModelSeparation } from './reviewer.js';
 import { getSmallModelRuntimeProfile } from './model-prompts.js';
 import { createTaskWorktree, isRepositoryClean, mergeDeclaredTaskFiles, removeTaskWorktree, type TaskWorktree } from './worktree-manager.js';
@@ -556,21 +557,34 @@ export class Scheduler {
       error: task.error || 'Unknown error',
     });
 
-    // Formulate the question (with timeout fallback)
-    const question = await this.interventionManager.formulateInterventionQuestion(
-      task, this._mission, task.error || 'Unknown error'
-    );
-
-    // Wait for the user's response via a Promise
-    const resolution = await new Promise<InterventionResolution>((resolve) => {
-      this.interventionResolve = resolve;
-      this.onEvent?.({
-        type: 'intervention_required',
-        taskId: task.id,
-        error: task.error || 'Unknown error',
-        question,
-      });
+    // T26 — KEV decide intervene vs continue before interrupting the operator.
+    const auto = await maybeAutoResolveIntervention({
+      missionTitle: this._mission.title,
+      taskTitle: task.title,
+      error: task.error || 'Unknown error',
     });
+
+    let resolution: InterventionResolution;
+    if (auto) {
+      log(`Decision gate auto-resolved intervention: ${auto.action}`, 'INFO');
+      resolution = { action: auto.action, message: auto.message };
+    } else {
+      // Formulate the question (with timeout fallback)
+      const question = await this.interventionManager.formulateInterventionQuestion(
+        task, this._mission, task.error || 'Unknown error'
+      );
+
+      // Wait for the user's response via a Promise
+      resolution = await new Promise<InterventionResolution>((resolve) => {
+        this.interventionResolve = resolve;
+        this.onEvent?.({
+          type: 'intervention_required',
+          taskId: task.id,
+          error: task.error || 'Unknown error',
+          question,
+        });
+      });
+    }
 
     log(`Intervention resolved: ${resolution.action} ${resolution.message ? `"${resolution.message}"` : ''}`, 'INFO');
 
