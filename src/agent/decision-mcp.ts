@@ -66,6 +66,49 @@ export function isDecisionInterveneGateEnabled(): boolean {
   );
 }
 
+const INTERVENE_QUESTIONS = {
+  action: {
+    type: 'choice',
+    instructions: 'Mission triage: intervene vs continue',
+    criteria: {
+      continue: 'Keep executing; no operator needed yet',
+      escalate: 'Ask the operator / open intervention',
+      skip: 'Skip the blocked work and move on',
+    },
+  },
+} as const;
+
+/** Prefer Unsloth `system_one` when the URL looks like Studio; else classic KEV first. */
+export function decisionToolCandidates(url: string): string[] {
+  const u = url.toLowerCase();
+  if (u.includes('unsloth') || u.includes(':8888')) {
+    return ['system_one', 'kev_evaluate'];
+  }
+  return ['kev_evaluate', 'system_one'];
+}
+
+function parseToolResult(rpc: { result?: unknown; error?: unknown } | null): KevEvaluateResult | null {
+  if (!rpc || rpc.error) return null;
+  const result = rpc.result as {
+    structuredContent?: KevEvaluateResult;
+    content?: Array<{ type?: string; text?: string }>;
+    isError?: boolean;
+  } | null;
+  if (!result || result.isError) return null;
+  if (result.structuredContent && typeof result.structuredContent === 'object') {
+    return result.structuredContent;
+  }
+  const text = result.content?.find((c) => c.type === 'text')?.text;
+  if (text) {
+    try {
+      return JSON.parse(text) as KevEvaluateResult;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 async function kevEvaluateIntervene(
   state: Record<string, unknown>,
   fetchImpl: FetchLike = fetch,
@@ -112,53 +155,29 @@ async function kevEvaluateIntervene(
       signal: AbortSignal.timeout(10_000),
     }).catch(() => undefined);
 
-    const call = await mcpPost(
-      url,
-      headers,
-      {
-        jsonrpc: '2.0',
-        id: 2,
-        method: 'tools/call',
-        params: {
-          name: 'kev_evaluate',
-          arguments: {
-            state,
-            questions: {
-              action: {
-                type: 'choice',
-                instructions: 'Mission triage: intervene vs continue',
-                criteria: {
-                  continue: 'Keep executing; no operator needed yet',
-                  escalate: 'Ask the operator / open intervention',
-                  skip: 'Skip the blocked work and move on',
-                },
-              },
+    // Unsloth Studio exposes system_one; HappyMonkey KEV exposes kev_evaluate.
+    for (const name of decisionToolCandidates(url)) {
+      const call = await mcpPost(
+        url,
+        headers,
+        {
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: {
+            name,
+            arguments: {
+              state,
+              questions: INTERVENE_QUESTIONS,
             },
           },
         },
-      },
-      fetchImpl,
-      sessionId,
-    );
-    if (call.status >= 400) return null;
-    const rpc = call.payload as { result?: unknown; error?: unknown } | null;
-    if (!rpc || rpc.error) return null;
-    const result = rpc.result as {
-      structuredContent?: KevEvaluateResult;
-      content?: Array<{ type?: string; text?: string }>;
-      isError?: boolean;
-    } | null;
-    if (!result || result.isError) return null;
-    if (result.structuredContent && typeof result.structuredContent === 'object') {
-      return result.structuredContent;
-    }
-    const text = result.content?.find((c) => c.type === 'text')?.text;
-    if (text) {
-      try {
-        return JSON.parse(text) as KevEvaluateResult;
-      } catch {
-        return null;
-      }
+        fetchImpl,
+        sessionId,
+      );
+      if (call.status >= 400) continue;
+      const parsed = parseToolResult(call.payload as { result?: unknown; error?: unknown } | null);
+      if (parsed) return parsed;
     }
     return null;
   } catch (error: any) {
