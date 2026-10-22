@@ -160,6 +160,19 @@ mcp.addTool({
 });
 
 mcp.addTool({
+  name: 'steer_mission',
+  description: 'Inject mid-run steering guidance for the next task (Chat phase 2). Does not stop the mission.',
+  parameters: z.object({
+    message: z.string().min(1),
+  }),
+  execute: async ({ message }) => {
+    if (!currentScheduler) throw new Error('No active scheduler to steer.');
+    currentScheduler.injectSteer(message);
+    return 'Steering queued for the next task.';
+  }
+});
+
+mcp.addTool({
   name: 'query_status',
   description: 'Query the status of the current or last mission.',
   parameters: z.object({}),

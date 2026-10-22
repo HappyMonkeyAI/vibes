@@ -119,6 +119,16 @@ export class Scheduler {
     }
   }
 
+  /** Chat / desktop steering — applied to the next ready task (or current guidance). */
+  public injectSteer(message: string): void {
+    const text = message.trim();
+    if (!text) return;
+    this.pendingSteerMessage = this.pendingSteerMessage
+      ? `${this.pendingSteerMessage}\n\n${text}`
+      : text;
+    log(`Steer injected (${text.slice(0, 80)}${text.length > 80 ? '…' : ''})`, 'INFO');
+  }
+
   /**
    * Suspends the running tool call until the user approves or denies it. This is
    * the `ask` arm of the approval policy — without it `ask` would be
