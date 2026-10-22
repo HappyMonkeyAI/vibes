@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname, resolve, extname, relative, sep, isAbsolute } from 'path';
+import { join, dirname, resolve, extname, relative, sep, isAbsolute, basename } from 'path';
 import { log } from '../logger.js';
 import { detectTechStack } from './tech-stack.js';
 
@@ -252,33 +252,45 @@ export function runStructuralAudit(workspaceRoot: string, taskFiles: string[]): 
   const srcDir = join(workspaceRoot, 'src');
   const auditDir = existsSync(srcDir) ? srcDir : workspaceRoot;
 
-  const extensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.css', '.scss', '.sass', '.less'];
+  const extensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.css', '.scss', '.sass', '.less', '.html', '.htm'];
   const files = collectFiles(auditDir, extensions);
 
   const importedAssetFiles = new Set<string>();
+
+  const checkAndAddAsset = (fromFile: string, imp: string) => {
+    const lower = imp.toLowerCase().split('?')[0] ?? '';
+    if (ASSET_EXTS.some(e => lower.endsWith(e)) || lower.includes('.module.')) {
+      const resolved = resolveImportPath(dirname(fromFile), imp.split('?')[0] ?? imp, workspaceRoot);
+      if (resolved) importedAssetFiles.add(resolved);
+    }
+  };
+
+  // Static sites load CSS via <link href="…"> — count those as imports (not only JS/TS).
+  const LINK_HREF_RE = /<link\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi;
+  for (const file of files) {
+    if (!['.html', '.htm'].includes(extname(file).toLowerCase())) continue;
+    const content = readFileSync(file, 'utf8');
+    LINK_HREF_RE.lastIndex = 0;
+    let linkMatch: RegExpExecArray | null;
+    while ((linkMatch = LINK_HREF_RE.exec(content)) !== null) {
+      checkAndAddAsset(file, linkMatch[1]);
+    }
+  }
 
   for (const file of files) {
     const ext = extname(file).toLowerCase();
     if (ext === '.ts' || ext === '.tsx' || ext === '.js' || ext === '.jsx') {
       const content = readFileSync(file, 'utf8');
-      
-      const checkAndAdd = (imp: string) => {
-        const lower = imp.toLowerCase();
-        if (ASSET_EXTS.some(e => lower.endsWith(e)) || lower.includes('.module.')) {
-          const resolved = resolveImportPath(dirname(file), imp, workspaceRoot);
-          if (resolved) importedAssetFiles.add(resolved);
-        }
-      };
 
       IMPORT_RE.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = IMPORT_RE.exec(content)) !== null) {
-        checkAndAdd(m[1]);
+        checkAndAddAsset(file, m[1]);
       }
       
       IMPORT_RE_EXPORT.lastIndex = 0;
       while ((m = IMPORT_RE_EXPORT.exec(content)) !== null) {
-        checkAndAdd(m[1]);
+        checkAndAddAsset(file, m[1]);
       }
     }
   }
@@ -553,14 +565,14 @@ export function runStructuralAudit(workspaceRoot: string, taskFiles: string[]): 
       if (isTaskFile && !importedAssetFiles.has(file)) {
         // Exempt common global CSS files from orphan check — they're typically loaded
         // via <link> tags in HTML or framework conventions, not imported by components.
-        const basename = file.split('/').pop() || '';
-        const isGlobalCss = GLOBAL_CSS_BASENAMES.has(basename.toLowerCase());
+        // Use path.basename — file.split('/') breaks on Windows absolute paths.
+        const isGlobalCss = GLOBAL_CSS_BASENAMES.has(basename(file).toLowerCase());
 
         if (!isGlobalCss) {
           issues.push({
             type: 'css_orphan',
             file: relFile,
-            message: 'Asset file was created or modified by this task but is not imported by any component',
+            message: 'Asset file was created or modified by this task but is not imported by any HTML <link> or JS/TS module',
           });
         }
       }

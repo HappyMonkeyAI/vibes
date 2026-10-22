@@ -31,26 +31,52 @@ export function describeDependencyDeadlock(tasks: Task[], completedTaskIds: Set<
     return null;
   }
 
+  const byId = new Map(tasks.map((task) => [task.id, task]));
   const pendingIds = new Set(pending.map((task) => task.id));
   const blocked = pending
     .map((task) => {
       const unmet = task.depends_on.filter((depId) => !completedTaskIds.has(depId));
       const waitingOnPending = unmet.filter((depId) => pendingIds.has(depId));
-      return { task, unmet, waitingOnPending };
+      const waitingOnGhost = unmet.filter((depId) => {
+        const dep = byId.get(depId);
+        return Boolean(dep && (dep.status === 'done' || dep.status === 'failed') && !completedTaskIds.has(depId));
+      });
+      const waitingOnMissing = unmet.filter((depId) => !byId.has(depId));
+      return { task, unmet, waitingOnPending, waitingOnGhost, waitingOnMissing };
     })
     .filter((entry) => entry.unmet.length > 0);
 
   const blockedTitles = blocked.map((entry) => entry.task.title).join(', ');
-  const cycleHint = blocked.some((entry) => entry.waitingOnPending.length > 0)
-    ? ' This usually means the mission plan has circular depends_on links (e.g. "Create Card" waits on "Add Styling" while "Add Styling" waits on "Create Card").'
-    : '';
+  const hasCycle = blocked.some((entry) => entry.waitingOnPending.length > 0);
+  const hasGhost = blocked.some((entry) => entry.waitingOnGhost.length > 0);
+  const hasMissing = blocked.some((entry) => entry.waitingOnMissing.length > 0);
+  let cycleHint = '';
+  if (hasGhost) {
+    cycleHint =
+      ' A prerequisite is marked done/failed but was never credited as complete (post-success gate bug), so dependents stay blocked.';
+  } else if (hasMissing) {
+    cycleHint = ' A depends_on entry points at a task id that is not in the plan.';
+  } else if (hasCycle) {
+    cycleHint =
+      ' This usually means the mission plan has circular depends_on links (e.g. "Create Card" waits on "Add Styling" while "Add Styling" waits on "Create Card").';
+  }
+
+  const describeDep = (depId: string): string => {
+    const dep = byId.get(depId);
+    if (!dep) return `${depId} (missing from plan)`;
+    if (dep.status === 'done' && !completedTaskIds.has(depId)) {
+      return `${dep.title} (done but not credited complete)`;
+    }
+    if (dep.status === 'failed' && !completedTaskIds.has(depId)) {
+      return `${dep.title} (failed)`;
+    }
+    return dep.title;
+  };
 
   const details = blocked
     .map((entry) => {
-      const waitingTitles = entry.waitingOnPending
-        .map((depId) => tasks.find((task) => task.id === depId)?.title ?? depId)
-        .join(', ');
-      return `${entry.task.title} -> waiting on: ${waitingTitles || entry.unmet.join(', ')}`;
+      const waitingTitles = entry.unmet.map(describeDep).join(', ');
+      return `${entry.task.title} -> waiting on: ${waitingTitles}`;
     })
     .join('; ');
 

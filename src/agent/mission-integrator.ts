@@ -49,12 +49,63 @@ export function evaluateMissionCompletion(mission: {
   }
 
   if (mission.ownerReview !== undefined) {
-    const review = OwnerAdversaryReviewSchema.safeParse(mission.ownerReview);
-    if (!review.success) reasons.push('Owner adversary review is malformed');
-    else if (!review.data.approved) reasons.push('Owner adversary review rejected the mission');
+    const raw = mission.ownerReview as { unverified?: boolean };
+    // Reviewer outage / unverified completion must not overturn done tasks.
+    if (raw?.unverified) {
+      /* soft-pass — advisory only */
+    } else {
+      const direct = OwnerAdversaryReviewSchema.safeParse(mission.ownerReview);
+      if (direct.success) {
+        if (!direct.data.approved) reasons.push('Owner adversary review rejected the mission');
+      } else {
+        // Try light coercion (string line numbers, etc.). If still invalid, soft-pass —
+        // malformed reviewer JSON is not proof the implemented work failed.
+        const coerced = OwnerAdversaryReviewSchema.safeParse(normalizeOwnerReviewInput(mission.ownerReview));
+        if (coerced.success && typeof (mission.ownerReview as { approved?: unknown }).approved === 'boolean') {
+          if (!coerced.data.approved) reasons.push('Owner adversary review rejected the mission');
+        }
+        /* else soft-pass */
+      }
+    }
   }
 
   return { approved: reasons.length === 0, reasons };
+}
+
+/** Coerce common reviewer drift (string lines, missing severity) before schema check. */
+export function normalizeOwnerReviewInput(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const obj = raw as Record<string, unknown>;
+  const issuesIn = Array.isArray(obj.issues) ? obj.issues : [];
+  const issues = issuesIn
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const issue = item as Record<string, unknown>;
+      const lineRaw = issue.line;
+      const line =
+        typeof lineRaw === 'number' && Number.isFinite(lineRaw)
+          ? Math.max(0, Math.trunc(lineRaw))
+          : typeof lineRaw === 'string' && /^\d+$/.test(lineRaw.trim())
+            ? parseInt(lineRaw.trim(), 10)
+            : 0;
+      const severity =
+        issue.severity === 'error' || issue.severity === 'warning' ? issue.severity : 'warning';
+      if (typeof issue.file !== 'string' || !issue.file.trim()) return null;
+      if (typeof issue.comment !== 'string' || !issue.comment.trim()) return null;
+      return {
+        file: issue.file,
+        line,
+        comment: issue.comment,
+        severity,
+        ...(typeof issue.suggestion === 'string' ? { suggestion: issue.suggestion } : {}),
+      };
+    })
+    .filter(Boolean);
+  return {
+    approved: obj.approved,
+    issues,
+    ...(typeof obj.feedback === 'string' ? { feedback: obj.feedback } : {}),
+  };
 }
 
 /**

@@ -2,6 +2,7 @@ import { FastMCP } from 'fastmcp';
 import { MissionPlanner } from '../agent/mission-planner.js';
 import { TaskExecutor } from '../agent/task-executor.js';
 import { Scheduler } from '../agent/scheduler.js';
+import { ensureWorkspaceGitSnapshot } from '../agent/ensure-workspace-git.js';
 import { listDirTool, readFileTool, writeFileTool, globTool, fileOutlineTool, readLinesTool } from '../tools/file-tools.js';
 import { shellTool } from '../tools/shell-tool.js';
 import { editFileTool } from '../tools/file-edit.js';
@@ -32,15 +33,20 @@ mcp.addTool({
       const root = workspace_root || process.cwd();
       const planner = new MissionPlanner();
       const plan = await planner.planMission(description, root);
-      
+
       currentMission = plan;
-      
+      try {
+        ensureWorkspaceGitSnapshot(root, plan.id);
+      } catch (err) {
+        log(`Git snapshot skipped: ${err instanceof Error ? err.message : String(err)}`, 'DEBUG');
+      }
+
       const tools = [
-        listDirTool, readFileTool, writeFileTool, editFileTool, 
+        listDirTool, readFileTool, writeFileTool, editFileTool,
         globTool, shellTool, fileOutlineTool, readLinesTool
       ];
       const executor = new TaskExecutor(tools);
-      
+
       const scheduler = new Scheduler(plan, executor, (event) => {
         log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
         if (event.type === 'task_started') {
@@ -48,15 +54,19 @@ mcp.addTool({
         } else if (event.type === 'task_completed') {
           console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "complete"}`);
         } else if (event.type === 'task_failed') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "failed"}`);
+          console.error(`[TASK_STATUS] ${JSON.stringify({
+            name: (event as any).title,
+            status: 'failed',
+            error: (event as any).error || 'Unknown error',
+          })}`);
         }
       });
-      
+
       currentScheduler = scheduler;
       const result = await scheduler.run();
       currentScheduler = null;
       currentMission = result;
-      
+
       return `Mission ${result.status}. Completed ${result.milestones.flatMap(m => m.tasks).filter(t => t.status === 'done').length}/${result.milestones.flatMap(m => m.tasks).length} tasks.`;
     } catch (error: any) {
       currentScheduler = null;
@@ -95,12 +105,17 @@ mcp.addTool({
   execute: async () => {
     if (!currentMission) return 'No mission has been planned.';
     try {
+      try {
+        ensureWorkspaceGitSnapshot(currentMission.workspace_root, currentMission.id);
+      } catch (err) {
+        log(`Git snapshot skipped: ${err instanceof Error ? err.message : String(err)}`, 'DEBUG');
+      }
       const tools = [
-        listDirTool, readFileTool, writeFileTool, editFileTool, 
+        listDirTool, readFileTool, writeFileTool, editFileTool,
         globTool, shellTool, fileOutlineTool, readLinesTool
       ];
       const executor = new TaskExecutor(tools);
-      
+
       const scheduler = new Scheduler(currentMission, executor, (event) => {
         log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
         if (event.type === 'task_started') {
@@ -108,7 +123,11 @@ mcp.addTool({
         } else if (event.type === 'task_completed') {
           console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "complete"}`);
         } else if (event.type === 'task_failed') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "failed"}`);
+          console.error(`[TASK_STATUS] ${JSON.stringify({
+            name: (event as any).title,
+            status: 'failed',
+            error: (event as any).error || 'Unknown error',
+          })}`);
         }
       });
       
