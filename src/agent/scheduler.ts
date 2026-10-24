@@ -192,8 +192,15 @@ export class Scheduler {
 
   async run() {
     this._mission.status = 'executing';
-    
-    while (this.hasPendingTasks()) {
+
+    // Keep the loop alive while an executeTask is blocked in handleTaskFailure —
+    // failed tasks are not "pending", so hasPendingTasks() alone would exit early
+    // and race the completion gate against a still-open intervention.
+    while (
+      this.hasPendingTasks()
+      || (this._mission.status as Mission['status']) === 'awaiting_intervention'
+      || this.runningTasks.size > 0
+    ) {
       const currentStatus = this._mission.status as Mission['status'];
       if (currentStatus === 'awaiting_intervention') {
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -206,6 +213,10 @@ export class Scheduler {
       log(`Scheduler loop: ${pendingCount} pending, ${nextTasks.length} ready, ${this.runningTasks.size} running`, 'DEBUG');
 
       if (nextTasks.length === 0 && this.runningTasks.size === 0) {
+        if ((this._mission.status as Mission['status']) === 'awaiting_intervention') {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          continue;
+        }
         const deadlockMessage = describeDependencyDeadlock(this.getAllTasks(), this.completedTasks);
         if (deadlockMessage) {
           log(deadlockMessage, 'ERROR');
@@ -536,7 +547,8 @@ export class Scheduler {
               updatedTask.extraSteps = (updatedTask.extraSteps || 0) + 10;
               this.completedTasks.delete(task.id);
               this.taskMap.set(task.id, updatedTask);
-              this.runningTasks.delete(task.id);
+              // Leave runningTasks to finally — early delete lets the loop restart
+              // this task while this call is still unwinding (T52 deadlock).
               await this.persistState?.(this._mission);
               return;
             }
@@ -732,7 +744,7 @@ export class Scheduler {
     this.completedTasks.delete(updatedTask.id);
     this.taskMap.set(updatedTask.id, updatedTask);
     this.updateTaskInMission(updatedTask);
-    this.runningTasks.delete(updatedTask.id);
+    // runningTasks cleared in executeTask finally (T52).
     await this.persistState?.(this._mission);
   }
 
@@ -775,7 +787,9 @@ export class Scheduler {
       updatedTask.extraSteps = (updatedTask.extraSteps || 0) + 10;
       this.completedTasks.delete(task.id);
       this.taskMap.set(task.id, updatedTask);
-      this.runningTasks.delete(task.id);
+      // Do not delete runningTasks here — executeTask finally owns that. Soft
+      // requeue with an early delete raced a second start, then finally wiped
+      // the new runner's slot and left status=in_progress with nothing running.
       return false;
     }
 

@@ -46,12 +46,22 @@ export function describeDependencyDeadlock(tasks: Task[], completedTaskIds: Set<
     })
     .filter((entry) => entry.unmet.length > 0);
 
-  const blockedTitles = blocked.map((entry) => entry.task.title).join(', ');
+  const stuckInProgress = pending.filter(
+    (task) => task.status === 'in_progress' && task.depends_on.every((depId) => completedTaskIds.has(depId)),
+  );
+
+  const blockedTitles = [
+    ...blocked.map((entry) => entry.task.title),
+    ...stuckInProgress.map((task) => task.title),
+  ].join(', ');
   const hasCycle = blocked.some((entry) => entry.waitingOnPending.length > 0);
   const hasGhost = blocked.some((entry) => entry.waitingOnGhost.length > 0);
   const hasMissing = blocked.some((entry) => entry.waitingOnMissing.length > 0);
   let cycleHint = '';
-  if (hasGhost) {
+  if (stuckInProgress.length > 0) {
+    cycleHint =
+      ' A task is stuck in_progress with no runner (soft-requeue raced a second start and the first finally cleared the slot).';
+  } else if (hasGhost) {
     cycleHint =
       ' A prerequisite is marked done/failed but was never credited as complete (post-success gate bug), so dependents stay blocked.';
   } else if (hasMissing) {
@@ -73,12 +83,13 @@ export function describeDependencyDeadlock(tasks: Task[], completedTaskIds: Set<
     return dep.title;
   };
 
-  const details = blocked
-    .map((entry) => {
+  const details = [
+    ...blocked.map((entry) => {
       const waitingTitles = entry.unmet.map(describeDep).join(', ');
       return `${entry.task.title} -> waiting on: ${waitingTitles}`;
-    })
-    .join('; ');
+    }),
+    ...stuckInProgress.map((task) => `${task.title} -> stuck in_progress with deps satisfied`),
+  ].join('; ');
 
   return `Scheduler deadlock: no runnable tasks remain, but ${pending.length} task(s) are still pending (${blockedTitles}).${cycleHint} ${details}`;
 }
