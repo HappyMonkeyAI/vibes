@@ -34,3 +34,23 @@ test('prefer probability argmax over mismatched choice', () => {
   });
   assert.equal(r.action, 'continue');
 });
+
+test('T54 escalate continue when confidence below floor', () => {
+  const r = decideInterveneAction({
+    choice: 'continue',
+    probabilities: { continue: 0.62, escalate: 0.29, skip: 0.08 },
+    confidence: 0.22,
+  });
+  assert.equal(r.action, 'escalate');
+  assert.match(r.reason, /confidence 0\.220 < 0\.35/i);
+  assert.equal(toAutoResolution(r.action), null);
+});
+
+test('T54 keep continue when confidence meets floor', () => {
+  const r = decideInterveneAction({
+    choice: 'continue',
+    probabilities: { continue: 0.7, escalate: 0.2, skip: 0.1 },
+    confidence: 0.55,
+  });
+  assert.equal(r.action, 'continue');
+});

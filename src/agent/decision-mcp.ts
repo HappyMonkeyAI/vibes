@@ -7,6 +7,7 @@ type FetchLike = typeof fetch;
 interface KevEvaluateAnswer {
   choice?: string;
   probabilities?: Record<string, number>;
+  confidence?: number;
 }
 
 interface KevEvaluateResult {
@@ -208,6 +209,7 @@ export async function maybeAutoResolveIntervention(context: {
   const gate = decideInterveneAction({
     choice: actionAnswer?.choice,
     probabilities: actionAnswer?.probabilities,
+    confidence: actionAnswer?.confidence,
   });
   log(`Decision intervene gate: ${gate.action} — ${gate.reason}`, 'INFO');
   return toAutoResolution(gate.action);
