@@ -50,10 +50,20 @@ export const getOllamaClient = (role: 'main' | 'planner' | 'reviewer' | 'triage'
     return clientCache.get(cacheKey)!;
   }
 
+  // Reviewer/planner calls often stream large diffs through a tunnel; 2 minutes
+  // was too aggressive and surfaced as "Reviewer unavailable; Request timed out"
+  // which then blocked mission completion on Windows benches.
+  const roleTimeoutMs =
+    role === 'reviewer' || role === 'planner'
+      ? 10 * 60 * 1000
+      : role === 'triage'
+        ? 60 * 1000
+        : 5 * 60 * 1000;
+
   const newClient = new OpenAI({
     baseURL: baseUrl,
     apiKey: apiKey,
-    timeout: 120000, // 2 minute timeout
+    timeout: roleTimeoutMs,
     maxRetries: 2,
     fetch: (url, init) => {
       const agent = String(url).startsWith('https') ? httpsAgent : httpAgent;

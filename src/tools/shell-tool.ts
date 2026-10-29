@@ -87,6 +87,26 @@ function truncateOutput(text: string, label: string): string {
   return `${truncated}\n[... ${omitted} chars truncated]`;
 }
 
+/**
+ * Pick a real interactive shell for the host OS.
+ * Hard-coding `/bin/bash` breaks Windows (spawn ENOENT) and then looks like a
+ * successful no-op when failOnError is false — agents thrash forever.
+ */
+export function resolveShellExecutable(): string {
+  if (process.platform === 'win32') {
+    // Prefer ComSpec (usually cmd.exe). Never /bin/bash on Windows.
+    return process.env.ComSpec || 'cmd.exe';
+  }
+  return '/bin/bash';
+}
+
+/** True when Node failed to spawn the shell itself (not a command exit code). */
+export function isShellSpawnFailure(error: { code?: unknown; message?: unknown }): boolean {
+  if (error.code === 'ENOENT') return true;
+  const message = typeof error.message === 'string' ? error.message : '';
+  return /spawn\s+.+\s+ENOENT/i.test(message);
+}
+
 export const shellTool: ToolDefinition = {
   name: 'shell',
   description: 'Execute a shell command within the workspace directory. Network calls, key generation, sudo, global installs, and destructive operations are not permitted.',
@@ -132,14 +152,14 @@ export const shellTool: ToolDefinition = {
 
     try {
       const workspaceRoot = context?.workspaceRoot || process.cwd();
-      // Use /bin/bash explicitly — the default /bin/sh is often dash, which
-      // does not support brace expansion. Models frequently emit commands like
-      // `mkdir -p components/{Button,Card}` which create literal directory names under dash.
-      const { stdout: rawOut, stderr: rawErr } = await execAsync(command, { 
+      // Unix: prefer bash over dash so brace expansion works
+      // (`mkdir -p components/{Button,Card}`). Windows: ComSpec/cmd — never /bin/bash.
+      const shell = resolveShellExecutable();
+      const { stdout: rawOut, stderr: rawErr } = await execAsync(command, {
         timeout: msTimeout,
         killSignal: 'SIGKILL',
         cwd: workspaceRoot,
-        shell: '/bin/bash',
+        shell,
       });
 
       const stdout = truncateOutput(rawOut, 'stdout');
@@ -149,22 +169,33 @@ export const shellTool: ToolDefinition = {
     } catch (error: any) {
       const stdout = truncateOutput(error.stdout ?? '', 'stdout');
       const stderr = truncateOutput(error.stderr ?? '', 'stderr');
-      
+
       // Combine error message with output for better agent visibility
       let detailedError = error.message;
       if (stderr) detailedError += `\n\n[STDERR]:\n${stderr}`;
       if (stdout) detailedError += `\n\n[STDOUT]:\n${stdout}`;
 
+      // Shell binary missing / unspawnable must never look like success — that
+      // caused infinite verify loops on Windows when /bin/bash was hard-coded.
+      if (isShellSpawnFailure(error)) {
+        log(`Shell spawn failed: ${error.message}`, 'ERROR');
+        return {
+          success: false,
+          error: `Shell spawn failed: ${detailedError}`,
+          data: { stdout, stderr, exitCode: error.code },
+        };
+      }
+
       // If failOnError is explicitly bypassed, we return the result as a success to the agent
       if (!failOnError) {
         return {
           success: true,
-          data: { 
-            stdout, 
-            stderr, 
+          data: {
+            stdout,
+            stderr,
             exitCode: error.code || 1,
-            message: error.message 
-          }
+            message: error.message,
+          },
         };
       }
 
