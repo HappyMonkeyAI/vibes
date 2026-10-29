@@ -16,6 +16,8 @@ import { RunRegistry } from './run-registry.js';
 import { traceFilePath } from './trace.js';
 import { createContextPack, createEvidenceHandoff } from './protocol-contracts.js';
 import { evaluateMissionCompletion } from './mission-integrator.js';
+import { doubleCheckMissionEvidence } from './mission-double-check.js';
+import { maybeAutoResolveIntervention } from './decision-mcp.js';
 import { Reviewer, validateReviewerModelSeparation } from './reviewer.js';
 import { getSmallModelRuntimeProfile } from './model-prompts.js';
 import { createTaskWorktree, isRepositoryClean, mergeDeclaredTaskFiles, removeTaskWorktree, type TaskWorktree } from './worktree-manager.js';
@@ -117,6 +119,16 @@ export class Scheduler {
     }
   }
 
+  /** Chat / desktop steering — applied to the next ready task (or current guidance). */
+  public injectSteer(message: string): void {
+    const text = message.trim();
+    if (!text) return;
+    this.pendingSteerMessage = this.pendingSteerMessage
+      ? `${this.pendingSteerMessage}\n\n${text}`
+      : text;
+    log(`Steer injected (${text.slice(0, 80)}${text.length > 80 ? '…' : ''})`, 'INFO');
+  }
+
   /**
    * Suspends the running tool call until the user approves or denies it. This is
    * the `ask` arm of the approval policy — without it `ask` would be
@@ -180,8 +192,15 @@ export class Scheduler {
 
   async run() {
     this._mission.status = 'executing';
-    
-    while (this.hasPendingTasks()) {
+
+    // Keep the loop alive while an executeTask is blocked in handleTaskFailure —
+    // failed tasks are not "pending", so hasPendingTasks() alone would exit early
+    // and race the completion gate against a still-open intervention.
+    while (
+      this.hasPendingTasks()
+      || (this._mission.status as Mission['status']) === 'awaiting_intervention'
+      || this.runningTasks.size > 0
+    ) {
       const currentStatus = this._mission.status as Mission['status'];
       if (currentStatus === 'awaiting_intervention') {
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -194,6 +213,10 @@ export class Scheduler {
       log(`Scheduler loop: ${pendingCount} pending, ${nextTasks.length} ready, ${this.runningTasks.size} running`, 'DEBUG');
 
       if (nextTasks.length === 0 && this.runningTasks.size === 0) {
+        if ((this._mission.status as Mission['status']) === 'awaiting_intervention') {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          continue;
+        }
         const deadlockMessage = describeDependencyDeadlock(this.getAllTasks(), this.completedTasks);
         if (deadlockMessage) {
           log(deadlockMessage, 'ERROR');
@@ -257,17 +280,61 @@ export class Scheduler {
         }
         await this.persistState?.(this._mission);
       }
-      const completion = this.failedTasks.size > 0
+      let completion = this.failedTasks.size > 0
         ? { approved: false, reasons: ['One or more tasks failed'] }
         : evaluateMissionCompletion(this._mission);
-      this._mission.status = completion.approved ? 'completed' : 'failed';
 
-      if (!completion.approved) {
+      // Cline-style double-check: do not accept "all tasks done" without durable evidence.
+      if (completion.approved && config.ENABLE_DOUBLE_CHECK_COMPLETION) {
+        const evidence = doubleCheckMissionEvidence(this._mission);
+        if (!evidence.approved) {
+          completion = evidence;
+          log(`Double-check completion rejected success: ${evidence.reasons.join('; ')}`, 'WARN');
+        }
+      }
+
+      if (completion.approved) {
+        this._mission.status = 'completed';
+      } else {
         const reason = `Mission completion gate rejected success: ${completion.reasons.join('; ')}`;
         log(reason, 'ERROR');
         this.onEvent?.({ type: 'task_failed', taskId: '', title: 'Mission Completion Gate', error: reason });
+
+        // Same Decision + Needs-You path as per-task failure (T50b): escalate waits
+        // on resolve_intervention; clear auto skip accepts the mission.
+        this._mission.status = 'awaiting_intervention';
+        const auto = await maybeAutoResolveIntervention({
+          missionTitle: this._mission.title,
+          taskTitle: 'Mission Completion Gate',
+          error: reason,
+        });
+        let resolution: InterventionResolution;
+        if (auto) {
+          log(`Decision gate auto-resolved completion intervention: ${auto.action}`, 'INFO');
+          resolution = { action: auto.action, message: auto.message };
+        } else {
+          resolution = await new Promise<InterventionResolution>((resolve) => {
+            this.interventionResolve = resolve;
+            this.onEvent?.({
+              type: 'intervention_required',
+              taskId: '',
+              title: 'Mission Completion Gate',
+              error: reason,
+              question: reason,
+            });
+          });
+        }
+        if (resolution.action === 'skip') {
+          this._mission.status = 'completed';
+          log('Completion gate accepted via skip (Decision or operator)', 'INFO');
+        } else if (resolution.action === 'retry' || resolution.action === 'reply') {
+          // No clean re-run of Owner review yet — surface as failed after operator retry.
+          this._mission.status = 'failed';
+        } else {
+          this._mission.status = 'failed';
+        }
       }
-      
+
       // Memento Pattern: Persist mission summary into long-term memory
       if (this._mission.status === 'completed') {
         const completedTaskTitles = this._mission.milestones.flatMap(m => m.tasks).filter(t => t.status === 'done').map(t => t.title);
@@ -332,6 +399,7 @@ export class Scheduler {
         this.onEvent?.({
           type: 'intervention_required',
           taskId: this.triageAgent?.currentTaskId || '',
+          title: 'Triage escalation',
           error: `Triage escalation: ${action.reason}`,
           question: `The triage observer recommends intervention:\n\n${action.reason}\n\nWhat would you like to do?`,
         });
@@ -454,7 +522,9 @@ export class Scheduler {
               return;
             }
             if (!await this.attachEvidenceHandoff(updatedTask)) {
-              await this.finishRun(runId, 'failed', updatedTask.error || 'Evidence handoff failed');
+              // Must not leave status=done without completedTasks — that ghosts dependents
+              // into a false "circular depends_on" deadlock.
+              await this.requeueOrFailGate(updatedTask, runId, updatedTask.error || 'Evidence handoff failed');
               return;
             }
 
@@ -477,7 +547,8 @@ export class Scheduler {
               updatedTask.extraSteps = (updatedTask.extraSteps || 0) + 10;
               this.completedTasks.delete(task.id);
               this.taskMap.set(task.id, updatedTask);
-              this.runningTasks.delete(task.id);
+              // Leave runningTasks to finally — early delete lets the loop restart
+              // this task while this call is still unwinding (T52 deadlock).
               await this.persistState?.(this._mission);
               return;
             }
@@ -497,7 +568,7 @@ export class Scheduler {
             return;
           }
           if (!await this.attachEvidenceHandoff(updatedTask)) {
-            await this.finishRun(runId, 'failed', updatedTask.error || 'Evidence handoff failed');
+            await this.requeueOrFailGate(updatedTask, runId, updatedTask.error || 'Evidence handoff failed');
             return;
           }
 
@@ -543,21 +614,35 @@ export class Scheduler {
       error: task.error || 'Unknown error',
     });
 
-    // Formulate the question (with timeout fallback)
-    const question = await this.interventionManager.formulateInterventionQuestion(
-      task, this._mission, task.error || 'Unknown error'
-    );
-
-    // Wait for the user's response via a Promise
-    const resolution = await new Promise<InterventionResolution>((resolve) => {
-      this.interventionResolve = resolve;
-      this.onEvent?.({
-        type: 'intervention_required',
-        taskId: task.id,
-        error: task.error || 'Unknown error',
-        question,
-      });
+    // T26 — KEV decide intervene vs continue before interrupting the operator.
+    const auto = await maybeAutoResolveIntervention({
+      missionTitle: this._mission.title,
+      taskTitle: task.title,
+      error: task.error || 'Unknown error',
     });
+
+    let resolution: InterventionResolution;
+    if (auto) {
+      log(`Decision gate auto-resolved intervention: ${auto.action}`, 'INFO');
+      resolution = { action: auto.action, message: auto.message };
+    } else {
+      // Formulate the question (with timeout fallback)
+      const question = await this.interventionManager.formulateInterventionQuestion(
+        task, this._mission, task.error || 'Unknown error'
+      );
+
+      // Wait for the user's response via a Promise
+      resolution = await new Promise<InterventionResolution>((resolve) => {
+        this.interventionResolve = resolve;
+        this.onEvent?.({
+          type: 'intervention_required',
+          taskId: task.id,
+          title: task.title,
+          error: task.error || 'Unknown error',
+          question,
+        });
+      });
+    }
 
     log(`Intervention resolved: ${resolution.action} ${resolution.message ? `"${resolution.message}"` : ''}`, 'INFO');
 
@@ -630,6 +715,39 @@ export class Scheduler {
     this.onEvent?.({ type: 'steps_updated', taskId: retryTask.id, extraSteps: retryTask.extraSteps || 0 });
   }
 
+  /**
+   * Post-success gates (evidence handoff) can reject work that the executor
+   * already marked done. Never leave status=done unless completedTasks has the
+   * id — dependents would wait forever and the loop reports a false deadlock.
+   */
+  private async requeueOrFailGate(updatedTask: Task, runId: string, reason: string): Promise<void> {
+    await this.finishRun(runId, 'failed', reason);
+    updatedTask.verificationRetries = (updatedTask.verificationRetries || 0) + 1;
+
+    if (updatedTask.verificationRetries > 3) {
+      log(`Max evidence/gate retries hit for: ${updatedTask.title}`, 'ERROR');
+      updatedTask.status = 'failed';
+      updatedTask.error = reason;
+      this.updateTaskInMission(updatedTask);
+      await this.handleTaskFailure(updatedTask);
+      await this.persistState?.(this._mission);
+      return;
+    }
+
+    log(`Re-queuing ${updatedTask.title} after gate failure (attempt ${updatedTask.verificationRetries}): ${reason}`, 'WARN');
+    updatedTask.status = 'todo';
+    updatedTask.error = undefined;
+    updatedTask.output = undefined;
+    updatedTask.evidenceHandoff = undefined;
+    updatedTask.userGuidance = `${reason}\n\nFix verification and evidence issues before completing the task.`;
+    updatedTask.extraSteps = (updatedTask.extraSteps || 0) + 10;
+    this.completedTasks.delete(updatedTask.id);
+    this.taskMap.set(updatedTask.id, updatedTask);
+    this.updateTaskInMission(updatedTask);
+    // runningTasks cleared in executeTask finally (T52).
+    await this.persistState?.(this._mission);
+  }
+
   private async verifyTask(task: Task, updatedTask: Task): Promise<boolean> {
     const goalJudge = createDefaultGoalJudge();
     const result = await goalJudge.evaluate(updatedTask, this._mission.workspace_root);
@@ -669,7 +787,9 @@ export class Scheduler {
       updatedTask.extraSteps = (updatedTask.extraSteps || 0) + 10;
       this.completedTasks.delete(task.id);
       this.taskMap.set(task.id, updatedTask);
-      this.runningTasks.delete(task.id);
+      // Do not delete runningTasks here — executeTask finally owns that. Soft
+      // requeue with an early delete raced a second start, then finally wiped
+      // the new runner's slot and left status=in_progress with nothing running.
       return false;
     }
 
@@ -683,42 +803,85 @@ export class Scheduler {
     let scripts: Record<string, unknown> = {};
     try {
       scripts = JSON.parse(readFileSync(join(workspace, 'package.json'), 'utf8')).scripts ?? {};
-    } catch { /* Non-package workspaces use the Git fallback below. */ }
+    } catch { /* Static HTML/CSS workspaces have no package.json. */ }
+
+    // Only run real project scripts. Do NOT use `npm --version` as a dummy gate:
+    // on Windows `execFile('npm')` often ENOENTs (npm.cmd), which falsely blocked
+    // every non-git / static-site task after evidence handoff.
     const commands: string[][] = [];
-    if (scripts.build) commands.push(['run', 'build']);
-    if (isIntegration && scripts.test) commands.push(['test']);
-    if (commands.length === 0) commands.push(['--version']);
+    if (typeof scripts.build === 'string' && scripts.build.trim()) commands.push(['run', 'build']);
+    if (isIntegration && typeof scripts.test === 'string' && scripts.test.trim()) commands.push(['test']);
+
     const commandsAndResults: Array<{ command: string; exitCode: number; summary: string }> = [];
+    const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     for (const args of commands) {
       const command = `npm ${args.join(' ')}`;
       try {
-        const executable = args[0] === 'diff' ? 'git' : 'npm';
-        const executableArgs = args[0] === 'diff' ? args : args;
-        const result = await execFileAsync(executable, executableArgs, { cwd: workspace });
-        commandsAndResults.push({ command: executable === 'git' ? `git ${args.join(' ')}` : command, exitCode: 0, summary: `${result.stdout}${result.stderr}`.trim().slice(-2000) || 'passed' });
+        const result = await execFileAsync(npmBin, args, { cwd: workspace });
+        commandsAndResults.push({
+          command,
+          exitCode: 0,
+          summary: `${result.stdout}${result.stderr}`.trim().slice(-2000) || 'passed',
+        });
       } catch (error: any) {
-        commandsAndResults.push({ command, exitCode: typeof error.code === 'number' ? error.code : 1, summary: `${error.stdout ?? ''}${error.stderr ?? ''}`.trim().slice(-2000) || error.message });
+        commandsAndResults.push({
+          command,
+          exitCode: typeof error.code === 'number' ? error.code : 1,
+          summary: `${error.stdout ?? ''}${error.stderr ?? ''}`.trim().slice(-2000) || error.message,
+        });
       }
     }
+    if (commands.length === 0) {
+      commandsAndResults.push({
+        command: 'workspace-check',
+        exitCode: 0,
+        summary: 'No package.json build/test scripts; skipped npm verification',
+      });
+    }
+
+    const commandsOk = commandsAndResults.every((result) => result.exitCode === 0);
+    const layers = isIntegration ? (['integration'] as const) : (['unit'] as const);
+
     try {
       const [head, branch, status] = await Promise.all([
         execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: workspace }),
         execFileAsync('git', ['branch', '--show-current'], { cwd: workspace }),
         execFileAsync('git', ['status', '--short'], { cwd: workspace }),
       ]);
-      const changedPaths = status.stdout.split('\n').filter(Boolean).map(line => line.slice(3).trim());
+      const changedPaths = status.stdout.split('\n').filter(Boolean).map((line) => line.slice(3).trim());
       task.evidenceHandoff = createEvidenceHandoff(
         { id: task.id, status: 'done', files: changedPaths },
-        { worktree: workspace, branch: branch.stdout.trim() || 'detached', baseline: head.stdout.trim(), commandsAndResults, verificationLayers: isIntegration ? ['integration'] : ['unit'], status: commandsAndResults.every(result => result.exitCode === 0) ? 'done' : 'blocked' },
+        {
+          worktree: workspace,
+          branch: branch.stdout.trim() || 'detached',
+          baseline: head.stdout.trim(),
+          commandsAndResults,
+          verificationLayers: [...layers],
+          status: commandsOk ? 'done' : 'blocked',
+        },
       );
       return task.evidenceHandoff.status === 'done';
     } catch (error: any) {
+      // Missing or broken .git must not fail static workspaces when scripts are OK.
       task.evidenceHandoff = createEvidenceHandoff(
         { id: task.id, status: 'done', files: task.files ?? [] },
-        { worktree: workspace, branch: 'no-git-workspace', baseline: 'no-git-baseline', commandsAndResults, verificationLayers: isIntegration ? ['integration'] : ['unit'], status: commandsAndResults.every(result => result.exitCode === 0) ? 'done' : 'blocked' },
+        {
+          worktree: workspace,
+          branch: 'no-git-workspace',
+          baseline: 'no-git-baseline',
+          commandsAndResults,
+          verificationLayers: [...layers],
+          status: commandsOk ? 'done' : 'blocked',
+        },
       );
       if (task.evidenceHandoff.status === 'done') return true;
-      task.error = `Evidence verification failed and Git state is unavailable: ${error.message}`;
+      const failed = commandsAndResults
+        .filter((r) => r.exitCode !== 0)
+        .map((r) => `${r.command} (exit ${r.exitCode})`)
+        .join('; ');
+      task.error = failed
+        ? `Evidence verification failed: ${failed}. Git also unavailable: ${error.message}`
+        : `Evidence verification failed and Git state is unavailable: ${error.message}`;
       return false;
     }
   }

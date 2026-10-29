@@ -2,6 +2,7 @@ import { FastMCP } from 'fastmcp';
 import { MissionPlanner } from '../agent/mission-planner.js';
 import { TaskExecutor } from '../agent/task-executor.js';
 import { Scheduler } from '../agent/scheduler.js';
+import { ensureWorkspaceGitSnapshot } from '../agent/ensure-workspace-git.js';
 import { listDirTool, readFileTool, writeFileTool, globTool, fileOutlineTool, readLinesTool } from '../tools/file-tools.js';
 import { shellTool } from '../tools/shell-tool.js';
 import { editFileTool } from '../tools/file-edit.js';
@@ -20,6 +21,36 @@ const mcp = new FastMCP({ name: 'Vibes', version: '1.0.0' });
 let currentMission: Mission | null = null;
 let currentScheduler: Scheduler | null = null;
 
+/** Emit structured stderr lines the desktop bridge parses into the ledger. */
+function emitDesktopTaskStatus(event: {
+  type: string;
+  title?: string;
+  error?: string;
+  question?: string;
+  taskId?: string;
+}): void {
+  log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
+  if (event.type === 'task_started') {
+    console.error(`[TASK_STATUS] ${JSON.stringify({ name: event.title, status: 'in-progress' })}`);
+  } else if (event.type === 'task_completed') {
+    console.error(`[TASK_STATUS] ${JSON.stringify({ name: event.title, status: 'complete' })}`);
+  } else if (event.type === 'task_failed') {
+    console.error(`[TASK_STATUS] ${JSON.stringify({
+      name: event.title,
+      status: 'failed',
+      error: event.error || 'Unknown error',
+    })}`);
+  } else if (event.type === 'intervention_required') {
+    // Desktop → Needs You (blocked + needsHuman); operator resolves via resolve_intervention.
+    console.error(`[TASK_STATUS] ${JSON.stringify({
+      name: event.title || 'Needs operator',
+      status: 'intervention',
+      detail: event.question || event.error || 'Operator intervention required',
+      taskId: event.taskId || undefined,
+    })}`);
+  }
+}
+
 mcp.addTool({
   name: 'execute_mission',
   description: 'Plan and execute a mission in the current workspace.',
@@ -32,31 +63,29 @@ mcp.addTool({
       const root = workspace_root || process.cwd();
       const planner = new MissionPlanner();
       const plan = await planner.planMission(description, root);
-      
+
       currentMission = plan;
-      
+      try {
+        ensureWorkspaceGitSnapshot(root, plan.id);
+      } catch (err) {
+        log(`Git snapshot skipped: ${err instanceof Error ? err.message : String(err)}`, 'DEBUG');
+      }
+
       const tools = [
-        listDirTool, readFileTool, writeFileTool, editFileTool, 
+        listDirTool, readFileTool, writeFileTool, editFileTool,
         globTool, shellTool, fileOutlineTool, readLinesTool
       ];
       const executor = new TaskExecutor(tools);
-      
+
       const scheduler = new Scheduler(plan, executor, (event) => {
-        log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
-        if (event.type === 'task_started') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "in-progress"}`);
-        } else if (event.type === 'task_completed') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "complete"}`);
-        } else if (event.type === 'task_failed') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "failed"}`);
-        }
+        emitDesktopTaskStatus(event as any);
       });
-      
+
       currentScheduler = scheduler;
       const result = await scheduler.run();
       currentScheduler = null;
       currentMission = result;
-      
+
       return `Mission ${result.status}. Completed ${result.milestones.flatMap(m => m.tasks).filter(t => t.status === 'done').length}/${result.milestones.flatMap(m => m.tasks).length} tasks.`;
     } catch (error: any) {
       currentScheduler = null;
@@ -95,21 +124,19 @@ mcp.addTool({
   execute: async () => {
     if (!currentMission) return 'No mission has been planned.';
     try {
+      try {
+        ensureWorkspaceGitSnapshot(currentMission.workspace_root, currentMission.id);
+      } catch (err) {
+        log(`Git snapshot skipped: ${err instanceof Error ? err.message : String(err)}`, 'DEBUG');
+      }
       const tools = [
-        listDirTool, readFileTool, writeFileTool, editFileTool, 
+        listDirTool, readFileTool, writeFileTool, editFileTool,
         globTool, shellTool, fileOutlineTool, readLinesTool
       ];
       const executor = new TaskExecutor(tools);
-      
+
       const scheduler = new Scheduler(currentMission, executor, (event) => {
-        log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
-        if (event.type === 'task_started') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "in-progress"}`);
-        } else if (event.type === 'task_completed') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "complete"}`);
-        } else if (event.type === 'task_failed') {
-          console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "failed"}`);
-        }
+        emitDesktopTaskStatus(event as any);
       });
       
       currentScheduler = scheduler;
@@ -137,6 +164,19 @@ mcp.addTool({
     if (!currentScheduler) return 'No active scheduler to resolve intervention for.';
     currentScheduler.resolveIntervention({ action, message, retryFromTaskId } as any);
     return 'Intervention resolved.';
+  }
+});
+
+mcp.addTool({
+  name: 'steer_mission',
+  description: 'Inject mid-run steering guidance for the next task (Chat phase 2). Does not stop the mission.',
+  parameters: z.object({
+    message: z.string().min(1),
+  }),
+  execute: async ({ message }) => {
+    if (!currentScheduler) throw new Error('No active scheduler to steer.');
+    currentScheduler.injectSteer(message);
+    return 'Steering queued for the next task.';
   }
 });
 

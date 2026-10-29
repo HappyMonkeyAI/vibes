@@ -87,7 +87,7 @@ export type ExecutionEvent =
   | { type: 'output'; content: string }
   | { type: 'error'; message: string }
   | { type: 'context_update'; used: number; total: number; percentage: number }
-  | { type: 'intervention_required'; taskId: string; error: string; question: string }
+  | { type: 'intervention_required'; taskId: string; title?: string; error: string; question: string }
   | { type: 'approval_required'; taskId: string; tool: string; reason: string; preview: string }
   | { type: 'approval_resolved'; taskId: string; tool: string; approved: boolean }
   | { type: 'steps_updated'; taskId: string; extraSteps: number }

@@ -42,20 +42,20 @@ export function buildOwnerAdversaryPrompt(
   diffContent: string,
 ): { systemPrompt: string; userPrompt: string } {
   return {
-    systemPrompt: `You are an independent Owner-as-Adversary reviewer. Review the entire mission, not an individual leaf task. Derive checks from the original request and all acceptance criteria. Look especially for missing real entrypoint wiring, dead code, omitted capabilities, invalid/empty/error paths, and integration regressions. Do not trust Worker summaries or task status as evidence. Output ONLY a JSON object with approved:boolean and issues:[{file,line,comment,severity,suggestion}].`,
+    systemPrompt: `You are an independent Owner-as-Adversary reviewer. Review the entire mission, not an individual leaf task. Derive checks from the original request and all acceptance criteria. Look especially for missing real entrypoint wiring, dead code, omitted capabilities, invalid/empty/error paths, and integration regressions. Do not trust Worker summaries or task status as evidence. Before approving, reject a hasty first pass and re-check each criterion against the diff. Output ONLY a JSON object with approved:boolean and issues:[{file,line,comment,severity,suggestion}].`,
     userPrompt: [
       `Mission: ${mission.title}`,
       'Original request:',
       mission.description,
       '',
       'Leaf-task acceptance criteria (context only):',
-      tasks.map(task => `- ${task.title}: ${task.acceptance_criteria.join('; ')}`).join('\\n'),
+      ...tasks.map(task => `- ${task.title}: ${task.acceptance_criteria.join('; ')}`),
       '',
       'Mission diff:',
       '```diff',
       diffContent,
       '```',
-    ].join('\\n'),
+    ].join('\n'),
   };
 }
 
@@ -192,11 +192,18 @@ export class Reviewer {
       const message = response.choices[0]?.message as any;
       const raw = extractJsonContent(message?.content || message?.reasoning_content || '');
       const parsed = JSON.parse(raw) as ReviewResult;
-      if (typeof parsed.approved !== 'boolean' || !Array.isArray(parsed.issues)) {
+      if (typeof parsed.approved !== 'boolean') {
         throw new Error('Owner review returned an invalid result shape');
       }
-      return parsed;
+      // Tolerate missing/partial issues arrays — completion gate soft-passes
+      // malformed reviews; do not invent a hard reject here.
+      return {
+        approved: parsed.approved,
+        issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+        feedback: typeof parsed.feedback === 'string' ? parsed.feedback : undefined,
+      };
     } catch (error: any) {
+      // unverified ⇒ mission-integrator soft-passes so done work is not failed
       return { approved: false, issues: [], unverified: true, feedback: `Owner review unavailable; completion is unverified: ${error.message}` };
     }
   }

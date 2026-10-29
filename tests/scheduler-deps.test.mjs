@@ -24,6 +24,16 @@ test('describeDependencyDeadlock returns null when a task is runnable', () => {
   assert.equal(describeDependencyDeadlock(tasks, new Set()), null);
 });
 
+test('describeDependencyDeadlock explains stuck in_progress with empty deps (T52)', () => {
+  const tasks = [
+    { id: 'orphan', title: 'Add orphan CSS', status: 'in_progress', depends_on: [] },
+  ];
+  const message = describeDependencyDeadlock(tasks, new Set());
+  assert.match(message, /Scheduler deadlock/i);
+  assert.match(message, /Add orphan CSS/);
+  assert.match(message, /stuck in_progress/i);
+});
+
 test('reviewed code tasks are serialized against a shared mutable workspace', () => {
   const tasks = [
     { id: 'one', title: 'One', status: 'todo', type: 'code', depends_on: [] },

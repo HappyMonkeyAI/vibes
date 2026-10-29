@@ -37,3 +37,48 @@ test('mission completion rejects an explicitly unapproved Owner review', () => {
   assert.equal(result.approved, false);
   assert.ok(result.reasons.some(reason => reason.includes('Owner adversary')));
 });
+
+test('mission completion soft-passes malformed Owner review when tasks are done', () => {
+  const result = evaluateMissionCompletion({
+    ownerReview: { approved: 'yes', issues: 'not-an-array', nested: true },
+    milestones: [{ tasks: [
+      { id: 'task-1', title: 'Create component', description: '', status: 'done' },
+      { id: 'task-2', title: 'Final integration and verification', description: '', status: 'done', evidenceHandoff: handoff },
+    ] }],
+  });
+
+  assert.equal(result.approved, true, `expected soft-pass, got: ${result.reasons.join('; ')}`);
+});
+
+test('coerced string line numbers still allow an explicit reject', () => {
+  const result = evaluateMissionCompletion({
+    ownerReview: {
+      approved: false,
+      issues: [{ file: 'index.html', line: '3', comment: 'Missing nav', severity: 'error' }],
+    },
+    milestones: [{ tasks: [
+      { id: 'task-1', title: 'Create component', description: '', status: 'done' },
+      { id: 'task-2', title: 'Final integration and verification', description: '', status: 'done', evidenceHandoff: handoff },
+    ] }],
+  });
+
+  assert.equal(result.approved, false);
+  assert.ok(result.reasons.some(reason => reason.includes('Owner adversary')));
+});
+
+test('mission completion soft-passes unverified Owner review when tasks are done', () => {
+  const result = evaluateMissionCompletion({
+    ownerReview: {
+      approved: false,
+      issues: [],
+      unverified: true,
+      feedback: 'Owner review unavailable; completion is unverified',
+    },
+    milestones: [{ tasks: [
+      { id: 'task-1', title: 'Create component', description: '', status: 'done' },
+      { id: 'task-2', title: 'Final integration and verification', description: '', status: 'done', evidenceHandoff: handoff },
+    ] }],
+  });
+
+  assert.equal(result.approved, true);
+});

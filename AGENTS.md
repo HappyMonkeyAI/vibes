@@ -64,7 +64,7 @@ This repository adopts the [HappyMonkeyAI Agents Protocol](https://github.com/Ha
 [AG-04] **Upstream Pulse (Protocol Sync):** At the beginning of every session, check for updates from the remote origin (`SPhillips1337/AntigravityAgentsPromptProtocol`). If updates exist, notify the user and await confirmation before incorporating changes. Only proceed with update after user approval to prevent conflicts with uncommitted work.
 [AG-05] **Steer (Active Listening & Interruption):** In multi-step turns, the agent MUST acknowledge that the user can provide "Steering Messages" between tool calls. If steered, immediately pivot and adapt the remaining steps. Never ignore mid-turn corrections.
 [AG-06] **Thrust (Batch Momentum & Sequential Fallback):** Maximize throughput by batching independent tool calls. However, if any tool in a batch is destructive, state-dependent, or carries high risk (e.g., `edit_file` followed by `run_tests`), the agent MUST fall back to sequential execution to maintain ground truth.
-[AG-07] **Sanity (Grounding Check):** Every task MUST begin with a grounding scan. Read `README.md` and `AGENTS.md` (and `ARCHITECTURE.md` if present) to ensure any new proposal aligns with existing standards and constraints.
+[AG-07] **Sanity (Grounding Check):** Every task MUST begin with a grounding scan. Prefer Spine when available: call `session_brief(project="vibes")` (or this repo's absolute path) and use `get_section` / `recall` instead of reading large docs whole; without MCP run `spine brief` from the repo root; otherwise read `README.md` and `AGENTS.md` (and `ARCHITECTURE.md` if present). Before stopping meaningful work, `checkpoint` with your agent name and save durable facts with `record_memory`.
 
 ---
 

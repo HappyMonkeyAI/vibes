@@ -48,12 +48,18 @@ export const ConfigSchema = z.object({
   CODEX_TOP_K: z.coerce.number().default(3),
   ENABLE_STRUCTURAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   ENABLE_ADVERSARIAL_AUDIT: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
+  /** After tasks are done, re-verify evidence (files on disk / changed paths) before mission success — Cline-style double-check. */
+  ENABLE_DOUBLE_CHECK_COMPLETION: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   ENABLE_NATIVE_TOOLS: z.union([z.boolean(), z.string().transform(v => v !== 'false')]).default(true),
   ENABLE_STREAMING: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
   CODEX_SCRIPT_PATH: z.string().default(''),
   CODEX_PYTHON_PATH: z.string().default(''),
   ENABLE_CONTEXT_RECONSTRUCTION: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
   VIBES_LAUNCH_DIR: z.string().default(''),
+  /** T26 — KEV decision MCP for intervene-vs-continue before operator interrupt. */
+  KEV_MCP_URL: z.string().default(''),
+  KEV_MCP_AUTH_TOKEN: z.string().default(''),
+  ENABLE_DECISION_INTERVENE_GATE: z.union([z.boolean(), z.string().transform(v => v === 'true')]).default(false),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
