@@ -260,3 +260,6 @@ The system uses a modular approach to skills. Only the core directive is residen
 - Neo4j at `neo4j.happymonkey.ai:7687` (Codex knowledge graph)
 - LM Studio at `192.168.5.157:1234` (generation + embeddings)
 - Local Ollama at `localhost:11434` (fallback embeddings — `nomic-embed-text:latest`)
+## Session start and end (Spine)
+If the `spine` MCP is available, call `session_brief(project="vibes")` (or the absolute path of this repo) first and use `get_section` / `recall` instead of reading PROGRESS.md or CONTEXT.md whole. Without the MCP, run `spine brief` from the repo root. If neither works, ground normally.
+Before you stop, call `checkpoint` with your agent name (e.g. `cursor`), what was done, what's next and any blockers. Save durable why/gotcha/decision facts with `record_memory`.
