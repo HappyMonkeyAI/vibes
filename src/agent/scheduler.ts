@@ -19,7 +19,7 @@ import { evaluateMissionCompletion } from './mission-integrator.js';
 import { Reviewer, validateReviewerModelSeparation } from './reviewer.js';
 import { getSmallModelRuntimeProfile } from './model-prompts.js';
 import { createTaskWorktree, isRepositoryClean, mergeDeclaredTaskFiles, removeTaskWorktree, type TaskWorktree } from './worktree-manager.js';
-import { resolveNpmExecutable } from './npm-exec.js';
+import { npmExecFileOptions, resolveNpmExecutable } from './npm-exec.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -695,7 +695,8 @@ export class Scheduler {
       try {
         const executable = args[0] === 'diff' ? 'git' : resolveNpmExecutable();
         const executableArgs = args[0] === 'diff' ? args : args;
-        const result = await execFileAsync(executable, executableArgs, { cwd: workspace });
+        const opts = executable === 'git' ? { cwd: workspace } : npmExecFileOptions({ cwd: workspace });
+        const result = await execFileAsync(executable, executableArgs, opts);
         commandsAndResults.push({ command: executable === 'git' ? `git ${args.join(' ')}` : command, exitCode: 0, summary: `${result.stdout}${result.stderr}`.trim().slice(-2000) || 'passed' });
       } catch (error: any) {
         commandsAndResults.push({ command, exitCode: typeof error.code === 'number' ? error.code : 1, summary: `${error.stdout ?? ''}${error.stderr ?? ''}`.trim().slice(-2000) || error.message });
