@@ -1,4 +1,5 @@
 import { exec } from 'child_process';
+import { existsSync } from 'fs';
 import { promisify } from 'util';
 import { z } from 'zod';
 import { ToolDefinition } from './index.js';
@@ -61,7 +62,7 @@ const BLOCKED_PATTERNS: RegExp[] = [
 // Agents routinely emit `2>/dev/null` or `>/dev/null` to suppress output.
 const SAFE_REDIRECT_RE = /(?:^|\s)[0-9]*(?:>>?|&>)\s*\/dev\/null\b/g;
 
-function checkCommand(command: string): string | null {
+export function checkCommand(command: string): string | null {
   // Path traversal check
   if (command.includes('..') || /%2e/i.test(command)) {
     return 'Path traversal detected (.. or encoded variants not allowed in shell commands)';
@@ -79,12 +80,74 @@ function checkCommand(command: string): string | null {
   return null;
 }
 
+/**
+ * Pick a shell for `child_process.exec`.
+ * - Windows: never hardcode `/bin/bash` (ENOENT). Use ComSpec / Node default.
+ * - Unix: prefer `/bin/bash` for brace expansion when present; else platform default.
+ */
+export function resolveShell(platform: NodeJS.Platform = process.platform): string | true {
+  if (platform === 'win32') {
+    const comspec = process.env.ComSpec?.trim();
+    return comspec && comspec.length > 0 ? comspec : true;
+  }
+  if (existsSync('/bin/bash')) return '/bin/bash';
+  return true;
+}
+
+/** Spawn never started (missing shell binary, etc.) — not a command exit code. */
+export function isSpawnFailure(error: { code?: string | number; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  if (error.code === 'ENOENT') return true;
+  if (typeof error.code === 'string' && /ENOENT|ENOTFOUND|EACCES/i.test(error.code)) return true;
+  const msg = String(error.message ?? '');
+  return /\bENOENT\b/i.test(msg) || /spawn .* ENOENT/i.test(msg);
+}
+
 function truncateOutput(text: string, label: string): string {
   if (!text || text.length <= MAX_OUTPUT_CHARS) return text;
   const truncated = text.slice(0, MAX_OUTPUT_CHARS);
   const omitted = text.length - MAX_OUTPUT_CHARS;
   log(`Shell ${label} truncated: ${text.length} → ${MAX_OUTPUT_CHARS} chars (${omitted} omitted)`, 'WARN');
   return `${truncated}\n[... ${omitted} chars truncated]`;
+}
+
+/** Map an exec() rejection into a ToolResult (exported for regression tests). */
+export function shellCatchResult(error: any, failOnError: boolean): ToolResult {
+  const stdout = truncateOutput(error.stdout ?? '', 'stdout');
+  const stderr = truncateOutput(error.stderr ?? '', 'stderr');
+
+  let detailedError = error.message;
+  if (stderr) detailedError += `\n\n[STDERR]:\n${stderr}`;
+  if (stdout) detailedError += `\n\n[STDOUT]:\n${stdout}`;
+
+  // Spawn never started (e.g. hardcoded /bin/bash on Windows) — always fail.
+  // failOnError only softens *command* non-zero exits, not missing shells.
+  if (isSpawnFailure(error)) {
+    log(`Shell spawn failed: ${error.message}`, 'ERROR');
+    return {
+      success: false,
+      error: detailedError,
+      data: { stdout, stderr, exitCode: error.code, spawnFailed: true },
+    };
+  }
+
+  if (!failOnError) {
+    return {
+      success: true,
+      data: {
+        stdout,
+        stderr,
+        exitCode: error.code || 1,
+        message: error.message,
+      },
+    };
+  }
+
+  return {
+    success: false,
+    error: detailedError,
+    data: { stdout, stderr, exitCode: error.code },
+  };
 }
 
 export const shellTool: ToolDefinition = {
@@ -130,16 +193,14 @@ export const shellTool: ToolDefinition = {
       return { success: false, error: `Blocked: ${blockReason}` };
     }
 
+    const shell = resolveShell();
     try {
       const workspaceRoot = context?.workspaceRoot || process.cwd();
-      // Use /bin/bash explicitly — the default /bin/sh is often dash, which
-      // does not support brace expansion. Models frequently emit commands like
-      // `mkdir -p components/{Button,Card}` which create literal directory names under dash.
-      const { stdout: rawOut, stderr: rawErr } = await execAsync(command, { 
+      const { stdout: rawOut, stderr: rawErr } = await execAsync(command, {
         timeout: msTimeout,
         killSignal: 'SIGKILL',
         cwd: workspaceRoot,
-        shell: '/bin/bash',
+        shell,
       });
 
       const stdout = truncateOutput(rawOut, 'stdout');
@@ -147,32 +208,7 @@ export const shellTool: ToolDefinition = {
 
       return { success: true, data: { stdout, stderr } };
     } catch (error: any) {
-      const stdout = truncateOutput(error.stdout ?? '', 'stdout');
-      const stderr = truncateOutput(error.stderr ?? '', 'stderr');
-      
-      // Combine error message with output for better agent visibility
-      let detailedError = error.message;
-      if (stderr) detailedError += `\n\n[STDERR]:\n${stderr}`;
-      if (stdout) detailedError += `\n\n[STDOUT]:\n${stdout}`;
-
-      // If failOnError is explicitly bypassed, we return the result as a success to the agent
-      if (!failOnError) {
-        return {
-          success: true,
-          data: { 
-            stdout, 
-            stderr, 
-            exitCode: error.code || 1,
-            message: error.message 
-          }
-        };
-      }
-
-      return {
-        success: false,
-        error: detailedError,
-        data: { stdout, stderr, exitCode: error.code },
-      };
+      return shellCatchResult(error, failOnError);
     }
   },
 };

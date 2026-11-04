@@ -163,6 +163,12 @@ Status: [done] Hard tool fence when `package.json` has `three` and no `react`/`r
 
 Evidence: `tests/stack-fence.test.mjs`; VRGallery Defiant Fable dogfood (React regression).
 
+### Priority 0c — Windows shell ENOENT false-success (T88 dogfood) ✅ 2026-11-04
+
+Status: [done] `shell` tool no longer hardcodes `shell: '/bin/bash'` (ENOENT on Windows). Spawn failures always return `success: false` even when `failOnError=false` (previously soft-succeeded and thrash-looped verification).
+
+Evidence: `tests/shell-tool.test.mjs`.
+
 ### Priority 0 — Clean reproduction gate
 
 Run the exact skeleton prompt in a fresh workspace using:
