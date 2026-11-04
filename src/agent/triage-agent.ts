@@ -3,6 +3,7 @@ import { log } from '../logger.js';
 import { getOllamaClient, getModel } from '../ollama-client.js';
 import { extractJsonContent, repairJson } from './json-repair.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
+import { composeRoleSystemPrompt } from './role-prompt-compose.js';
 import type {
   AgentLoopHooks,
   AfterToolCallContext,
@@ -335,7 +336,14 @@ YOU MUST:
     const model = config.TRIAGE_MODEL || getModel();
     const client = getOllamaClient('triage');
     const modelSpecificPrompt = getModelSpecificPrompt(model, 'triage');
-    const systemMsg = { role: 'system' as const, content: TRIAGE_SYSTEM_PROMPT + modelSpecificPrompt };
+    const systemMsg = {
+      role: 'system' as const,
+      content: composeRoleSystemPrompt({
+        workspaceRoot: process.cwd(),
+        role: 'triage',
+        basePrompt: TRIAGE_SYSTEM_PROMPT + modelSpecificPrompt,
+      }),
+    };
     const userMsg = { role: 'user' as const, content: context };
 
     // Attempt 1: function calling (structured output)

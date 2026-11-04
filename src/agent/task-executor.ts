@@ -20,6 +20,7 @@ import { ReconstructionController } from './context-reconstruction.js';
 import { Governor } from './governor.js';
 import { consumeChatCompletionStream, isAsyncChatCompletionStream } from './stream-adapter.js';
 import { createStackFenceHook } from './stack-fence.js';
+import { composeRoleSystemPrompt } from './role-prompt-compose.js';
 
 /** Type guard — narrows `BeforeToolCallResult | void | undefined` to `BeforeToolCallResult`. */
 function isBlockResult(v: BeforeToolCallResult | void | undefined): v is BeforeToolCallResult {
@@ -377,7 +378,10 @@ You are a specialized minion focused on workspace and project environment config
       toolsSection = `\n${formatToolsForSystemPrompt(minionTools)}`;
     }
 
-    const systemPrompt = `${minionHeader}You are an autonomous agent executing a specific task.
+    const systemPrompt = composeRoleSystemPrompt({
+      workspaceRoot,
+      role: 'executor',
+      basePrompt: `${minionHeader}You are an autonomous agent executing a specific task.
 Rules:
 1. USE TOOLS HONESTLY. If a tool returns an error, YOU MUST ACKNOWLEDGE IT.
 2. DO NOT hallucinate success. If a command fails, report the failure and try to fix it.
@@ -387,7 +391,7 @@ Rules:
 6. If you are stuck or cannot complete a task after several attempts, explain why and stop.
 7. Keep file writes concise. Avoid unnecessarily large outputs.
 8. TOOL CALLING FALLBACK: If standard tool-calling APIs fail, throw an error, or are unavailable, you can invoke a tool by outputting a JSON object inside markdown code fences:
-\`\`\`json
+   \`\`\`json
 {
   "tool": "tool_name",
   "args": {
@@ -413,7 +417,8 @@ Description: ${task.description}
 Files: ${task.files.join(', ')}
 Acceptance Criteria:
 ${task.acceptance_criteria.map(c => `- ${c}`).join('\n')}
-${memoriesSection}`;
+${memoriesSection}`,
+    });
 
     let messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },

@@ -3,6 +3,7 @@ import { Task, Mission } from './types.js';
 import { log } from '../logger.js';
 import { config } from '../config.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
+import { composeRoleSystemPrompt } from './role-prompt-compose.js';
 import { extractJsonContent, repairJson } from './json-repair.js';
 import { execSync } from 'child_process';
 
@@ -126,12 +127,17 @@ export class Reviewer {
     }
 
     const { systemPrompt, userPrompt } = buildReviewerPrompts(task, mission, diffContent, modelSpecificPrompt);
+    const composedSystem = composeRoleSystemPrompt({
+      workspaceRoot,
+      role: 'reviewer',
+      basePrompt: systemPrompt,
+    });
 
     try {
       const response = await getOllamaClient('reviewer').chat.completions.create({
         model: config.REVIEWER_MODEL,
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: composedSystem },
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.1,
