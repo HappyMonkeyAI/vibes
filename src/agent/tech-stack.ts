@@ -28,14 +28,30 @@ export function detectTechStack(workspaceRoot: string): string[] {
       
       stack.add('javascript');
       if (deps['typescript']) stack.add('typescript');
-      if (deps['react']) stack.add('react');
+      if (deps['three']) stack.add('three');
+      if (deps['react'] || deps['react-dom']) stack.add('react');
       if (deps['next']) {
         stack.add('nextjs');
         stack.add('react');
       }
       if (deps['vue']) stack.add('vue');
+      // Vanilla three: declare explicitly so planners do not invent React.
+      if (deps['three'] && !deps['react'] && !deps['react-dom'] && !deps['next'] && !deps['vue']) {
+        stack.add('vanilla-three');
+      }
     } catch {}
   }
+
+  const pkgHasReact = (() => {
+    try {
+      if (!existsSync(pkgPath)) return false;
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+      const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+      return Boolean(deps.react || deps['react-dom'] || deps.next);
+    } catch {
+      return false;
+    }
+  })();
 
   // 2. Scan directories for files/configurations
   const srcDir = join(workspaceRoot, 'src');
@@ -44,7 +60,8 @@ export function detectTechStack(workspaceRoot: string): string[] {
   for (const dir of targetDirs) {
     if (!existsSync(dir)) continue;
 
-    if (hasExtensionInDir(dir, ['.tsx', '.jsx'])) {
+    // Do not infer React from stray .tsx when package.json has no react (T88 dogfood).
+    if (hasExtensionInDir(dir, ['.tsx', '.jsx']) && (pkgHasReact || !existsSync(pkgPath))) {
       stack.add('react');
       stack.add('javascript');
     }

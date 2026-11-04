@@ -8,6 +8,7 @@ import { editFileTool } from '../tools/file-edit.js';
 import type { ToolDefinition } from '../tools/index.js';
 import { getMCPTools } from './index.js';
 import { filterToolsForWorkspaceRole, type RoleKey } from './role-mcp-policy.js';
+import { wrapToolsWithStackFence } from '../agent/stack-fence.js';
 
 const BUILTIN_TOOLS: ToolDefinition[] = [
   listDirTool,
@@ -38,5 +39,7 @@ export async function buildMissionTools(opts: {
     ...(opts.extra ?? []),
   ];
 
-  return filterToolsForWorkspaceRole(catalog, opts.workspaceRoot, opts.role ?? 'executor');
+  const filtered = filterToolsForWorkspaceRole(catalog, opts.workspaceRoot, opts.role ?? 'executor');
+  // T88 — tool-level fence (defense in depth; hooks alone missed live React edits).
+  return wrapToolsWithStackFence(filtered, opts.workspaceRoot);
 }

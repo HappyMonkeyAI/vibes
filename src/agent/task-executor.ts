@@ -19,6 +19,7 @@ import { getModelSpecificPrompt, getSmallModelRuntimeProfile } from './model-pro
 import { ReconstructionController } from './context-reconstruction.js';
 import { Governor } from './governor.js';
 import { consumeChatCompletionStream, isAsyncChatCompletionStream } from './stream-adapter.js';
+import { createStackFenceHook } from './stack-fence.js';
 
 /** Type guard — narrows `BeforeToolCallResult | void | undefined` to `BeforeToolCallResult`. */
 function isBlockResult(v: BeforeToolCallResult | void | undefined): v is BeforeToolCallResult {
@@ -30,7 +31,11 @@ function isBlockResult(v: BeforeToolCallResult | void | undefined): v is BeforeT
  * These are the Pi-inspired defaults: thrash detection, reasoning strip,
  * context compaction, and tool-result validation.
  */
-export function createDefaultHooks(getYoloMode: () => boolean, emit?: (evt: ExecutionEvent) => void): AgentLoopHooks {
+export function createDefaultHooks(
+  getYoloMode: () => boolean,
+  emit?: (evt: ExecutionEvent) => void,
+  workspaceRoot?: string,
+): AgentLoopHooks {
   // Track consecutive turn tool execution sequences to detect thrashing/infinite loops.
   // We only count turns that fail across the whole tool batch. Any successful
   // tool result clears the streak so normal retry/progress cycles do not trip
@@ -76,12 +81,14 @@ export function createDefaultHooks(getYoloMode: () => boolean, emit?: (evt: Exec
     });
   }
 
+  const stackFence = workspaceRoot ? createStackFenceHook(workspaceRoot) : undefined;
+
   return {
     reset: () => {
       _consecutiveFailingTurnSequences.length = 0;
     },
-    // beforeToolCall: no-op by default (validation is done inline via Zod)
-    beforeToolCall: async () => undefined,
+    // T88 — vanilla-three stack fence when workspaceRoot is known; otherwise no-op.
+    beforeToolCall: stackFence ?? (async () => undefined),
 
     // afterToolCall: record failed tool usage to memory
     afterToolCall: async ({ toolCall, args, result, isError }) => {
@@ -155,10 +162,13 @@ export class TaskExecutor {
       hooks?: AgentLoopHooks;
       /** YOLO mode getter (injected at runtime). Defaults to () => config.YOLO_MODE. */
       getYoloMode?: () => boolean;
+      /** Workspace root for T88 stack fence defaults when hooks are omitted. */
+      workspaceRoot?: string;
     },
   ) {
     this.tools = tools;
-    this.hooks = options?.hooks ?? createDefaultHooks(options?.getYoloMode ?? (() => config.YOLO_MODE));
+    this.hooks = options?.hooks
+      ?? createDefaultHooks(options?.getYoloMode ?? (() => config.YOLO_MODE), undefined, options?.workspaceRoot);
     this.getYoloMode = options?.getYoloMode ?? (() => config.YOLO_MODE);
   }
 

@@ -35,7 +35,7 @@ mcp.addTool({
 
       // T85 — MCP + plugins + role-mcp-policy filter (executor).
       const tools = await buildMissionTools({ workspaceRoot: root, role: 'executor' });
-      const executor = new TaskExecutor(tools);
+      const executor = new TaskExecutor(tools, { workspaceRoot: root });
 
       const scheduler = new Scheduler(plan, executor, (event) => {
         log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
@@ -93,7 +93,7 @@ mcp.addTool({
     try {
       const root = currentMission.workspace_root || process.cwd();
       const tools = await buildMissionTools({ workspaceRoot: root, role: 'executor' });
-      const executor = new TaskExecutor(tools);
+      const executor = new TaskExecutor(tools, { workspaceRoot: root });
 
       const scheduler = new Scheduler(currentMission, executor, (event) => {
         log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
