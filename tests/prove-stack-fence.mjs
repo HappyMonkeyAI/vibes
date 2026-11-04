@@ -1,18 +1,19 @@
 ﻿/**
  * Live proof: buildMissionTools for a vanilla-three workspace must deny React writes.
  *
- *   node scripts/prove-stack-fence.mjs [workspaceRoot]
+ *   node tests/prove-stack-fence.mjs [workspaceRoot]
  */
 import assert from "node:assert/strict";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
+const here = path.dirname(fileURLToPath(import.meta.url));
 const workspace = path.resolve(
   process.argv[2] || "C:/Users/steph/Documents/development/VRGallery",
 );
 
 const { buildMissionTools } = await import(
-  pathToFileURL(path.resolve("../dist/mcp/mission-tools.js")).href
+  pathToFileURL(path.join(here, "../dist/mcp/mission-tools.js")).href
 );
 
 const tools = await buildMissionTools({ workspaceRoot: workspace, role: "executor" });
@@ -41,4 +42,3 @@ assert.equal(ok.success, true, `vanilla write failed: ${ok.error}`);
 
 console.log(`stack fence OK on ${workspace}`);
 console.log(`blocked: ${blocked.error}`);
-
