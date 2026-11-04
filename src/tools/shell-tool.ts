@@ -85,13 +85,14 @@ export function checkCommand(command: string): string | null {
  * - Windows: never hardcode `/bin/bash` (ENOENT). Use ComSpec / Node default.
  * - Unix: prefer `/bin/bash` for brace expansion when present; else platform default.
  */
-export function resolveShell(platform: NodeJS.Platform = process.platform): string | true {
+/** `undefined` = Node default shell (omit `shell` option). Never return boolean — ExecOptions.shell is string | undefined. */
+export function resolveShell(platform: NodeJS.Platform = process.platform): string | undefined {
   if (platform === 'win32') {
     const comspec = process.env.ComSpec?.trim();
-    return comspec && comspec.length > 0 ? comspec : true;
+    return comspec && comspec.length > 0 ? comspec : undefined;
   }
   if (existsSync('/bin/bash')) return '/bin/bash';
-  return true;
+  return undefined;
 }
 
 /** Spawn never started (missing shell binary, etc.) — not a command exit code. */

@@ -18,7 +18,7 @@ test('resolveShell never hardcodes /bin/bash on win32', () => {
     assert.notEqual(shell, '/bin/bash');
     assert.match(shell, /cmd\.exe|powershell|pwsh/i);
   } else {
-    assert.equal(shell, true);
+    assert.equal(shell, undefined);
   }
 });
 
@@ -26,7 +26,7 @@ test('resolveShell prefers /bin/bash on unix when present', () => {
   if (process.platform === 'win32') return;
   const shell = resolveShell('linux');
   if (fs.existsSync('/bin/bash')) assert.equal(shell, '/bin/bash');
-  else assert.equal(shell, true);
+  else assert.equal(shell, undefined);
 });
 
 test('isSpawnFailure detects ENOENT spawn errors', () => {
