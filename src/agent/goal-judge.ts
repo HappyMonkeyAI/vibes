@@ -76,13 +76,16 @@ export class GoalJudge {
 
     // --- Hard Evaluator Tier 2: Structural Lint Checks (Structural Audit) ---
     if (task.files && task.files.length > 0) {
-      const auditIssues = runStructuralAudit(baseDir, task.files);
-      if (auditIssues.length > 0) {
-        const structuralErrors = auditIssues.map(i => `[${i.type}] ${i.file}: ${i.message}`);
-        unmetCriteria.push(...structuralErrors);
-        const feedback = `Structural audit found issues:\n${structuralErrors.map(e => `- ${e}`).join('\n')}`;
-        log(`Goal judge evaluation failed (Tier 2 Structural Audit) for task ${task.id}: ${feedback}`, 'WARN');
-        return { approved: false, unmetCriteria, feedback };
+      const auditableFiles = task.files.filter((file) => !isFenceBlockedProbePath(file, baseDir));
+      if (auditableFiles.length > 0) {
+        const auditIssues = runStructuralAudit(baseDir, auditableFiles);
+        if (auditIssues.length > 0) {
+          const structuralErrors = auditIssues.map(i => `[${i.type}] ${i.file}: ${i.message}`);
+          unmetCriteria.push(...structuralErrors);
+          const feedback = `Structural audit found issues:\n${structuralErrors.map(e => `- ${e}`).join('\n')}`;
+          log(`Goal judge evaluation failed (Tier 2 Structural Audit) for task ${task.id}: ${feedback}`, 'WARN');
+          return { approved: false, unmetCriteria, feedback };
+        }
       }
     }
 
