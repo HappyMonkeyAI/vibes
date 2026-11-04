@@ -2,9 +2,7 @@ import { FastMCP } from 'fastmcp';
 import { MissionPlanner } from '../agent/mission-planner.js';
 import { TaskExecutor } from '../agent/task-executor.js';
 import { Scheduler } from '../agent/scheduler.js';
-import { listDirTool, readFileTool, writeFileTool, globTool, fileOutlineTool, readLinesTool } from '../tools/file-tools.js';
-import { shellTool } from '../tools/shell-tool.js';
-import { editFileTool } from '../tools/file-edit.js';
+import { buildMissionTools } from './mission-tools.js';
 import { log, addLogListener } from '../logger.js';
 import { Mission } from '../agent/types.js';
 
@@ -34,13 +32,11 @@ mcp.addTool({
       const plan = await planner.planMission(description, root);
       
       currentMission = plan;
-      
-      const tools = [
-        listDirTool, readFileTool, writeFileTool, editFileTool, 
-        globTool, shellTool, fileOutlineTool, readLinesTool
-      ];
+
+      // T85 — MCP + plugins + role-mcp-policy filter (executor).
+      const tools = await buildMissionTools({ workspaceRoot: root, role: 'executor' });
       const executor = new TaskExecutor(tools);
-      
+
       const scheduler = new Scheduler(plan, executor, (event) => {
         log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
         if (event.type === 'task_started') {
@@ -51,12 +47,12 @@ mcp.addTool({
           console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "failed"}`);
         }
       });
-      
+
       currentScheduler = scheduler;
       const result = await scheduler.run();
       currentScheduler = null;
       currentMission = result;
-      
+
       return `Mission ${result.status}. Completed ${result.milestones.flatMap(m => m.tasks).filter(t => t.status === 'done').length}/${result.milestones.flatMap(m => m.tasks).length} tasks.`;
     } catch (error: any) {
       currentScheduler = null;
@@ -95,12 +91,10 @@ mcp.addTool({
   execute: async () => {
     if (!currentMission) return 'No mission has been planned.';
     try {
-      const tools = [
-        listDirTool, readFileTool, writeFileTool, editFileTool, 
-        globTool, shellTool, fileOutlineTool, readLinesTool
-      ];
+      const root = currentMission.workspace_root || process.cwd();
+      const tools = await buildMissionTools({ workspaceRoot: root, role: 'executor' });
       const executor = new TaskExecutor(tools);
-      
+
       const scheduler = new Scheduler(currentMission, executor, (event) => {
         log(`[MCP Mission Event] ${event.type}`, 'DEBUG');
         if (event.type === 'task_started') {
@@ -111,12 +105,12 @@ mcp.addTool({
           console.error(`[TASK_STATUS] {"name": ${JSON.stringify((event as any).title)}, "status": "failed"}`);
         }
       });
-      
+
       currentScheduler = scheduler;
       const result = await scheduler.run();
       currentScheduler = null;
       currentMission = result;
-      
+
       return `Mission ${result.status}. Completed ${result.milestones.flatMap(m => m.tasks).filter(t => t.status === 'done').length}/${result.milestones.flatMap(m => m.tasks).length} tasks.`;
     } catch (error: any) {
       currentScheduler = null;

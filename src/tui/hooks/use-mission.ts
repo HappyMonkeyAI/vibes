@@ -4,9 +4,6 @@ import { MissionPlanner } from '../../agent/mission-planner.js';
 import { TaskExecutor, createDefaultHooks } from '../../agent/task-executor.js';
 import { Scheduler, InterventionResolution } from '../../agent/scheduler.js';
 import { TriageAgent, withTriageHooks } from '../../agent/triage-agent.js';
-import { listDirTool, readFileTool, writeFileTool, globTool, fileOutlineTool, readLinesTool } from '../../tools/file-tools.js';
-import { shellTool } from '../../tools/shell-tool.js';
-import { editFileTool } from '../../tools/file-edit.js';
 import { log, addLogListener, removeLogListener } from '../../logger.js';
 import { config } from '../../config.js';
 import { getMCPService } from '../../mcp/mcp-service.js';
@@ -181,26 +178,12 @@ export const useMission = () => {
     }
 
     try {
-      const { searchSymbolsTool } = await import('../../tools/index-tools.js');
-      const { loadPluginTools } = await import('../../tools/plugin-loader.js');
-      const { getMCPTools } = await import('../../mcp/index.js');
-      
-      const mcpTools = getMCPTools();
-      const pluginTools = await loadPluginTools(plan.workspace_root);
-
-      const tools = [
-        listDirTool, 
-        readFileTool, 
-        writeFileTool, 
-        editFileTool, 
-        globTool, 
-        shellTool,
-        fileOutlineTool,
-        readLinesTool,
-        searchSymbolsTool,
-        ...mcpTools,
-        ...pluginTools
-      ];
+      const { buildMissionTools } = await import('../../mcp/mission-tools.js');
+      // T85 — same filtered catalogue as MCP server path (role-mcp-policy.json).
+      const tools = await buildMissionTools({
+        workspaceRoot: plan.workspace_root,
+        role: 'executor',
+      });
       const triage = config.TRIAGE_ENABLED ? new TriageAgent(config.TRIAGE_AUTO_STEER) : null;
       const baseHooks = createDefaultHooks(() => isYoloRef.current);
       if (config.APPROVAL_MODE !== 'legacy') {
