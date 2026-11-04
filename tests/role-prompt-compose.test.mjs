@@ -101,6 +101,33 @@ test('overlay appends add/emphasize/forbid without rewriting constitution', () =
   assert.ok(out.indexOf('MISSION OVERLAY') < out.indexOf('ROLE LESSONS'));
 });
 
+test('compose includes harness-lesson.json from prior failure (T80)', () => {
+  const root = tmpWorkspace();
+  fs.writeFileSync(
+    path.join(root, '.vibes', 'harness-lesson.json'),
+    JSON.stringify({
+      v: 2,
+      at: Date.now(),
+      missionTitle: 'Temptation dogfood',
+      lesson: 'Run npm install before claiming build success',
+      helped: 'Stack fence blocked React',
+      failed: 'Ghost-done without node_modules',
+    }),
+  );
+
+  const out = composeRoleSystemPrompt({
+    workspaceRoot: root,
+    role: 'executor',
+    basePrompt: 'BASE',
+  });
+
+  assert.match(out, /HARNESS LESSON/);
+  assert.match(out, /Run npm install before claiming build success/);
+  assert.match(out, /Keep: Stack fence blocked React/);
+  assert.match(out, /Avoid: Ghost-done without node_modules/);
+  assert.ok(out.indexOf('HARNESS LESSON') < out.indexOf('BASE'));
+});
+
 test('load helpers tolerate corrupt JSON', () => {
   const root = tmpWorkspace();
   fs.writeFileSync(path.join(root, '.vibes', 'role-constitutions.json'), '{not-json');

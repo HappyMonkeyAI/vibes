@@ -35,7 +35,19 @@ export interface RoleLessonsFile {
   roles: Partial<Record<RoleKey, string[]>>;
 }
 
+/** Desktop T35 — single latest failure-distilled lesson (Retry seed + T80 compose). */
+export interface HarnessLessonFile {
+  v: number;
+  at?: number;
+  missionTitle?: string;
+  lesson: string;
+  helped?: string;
+  failed?: string;
+  harnessClass?: string | null;
+}
+
 const MAX_SECTION_CHARS = 12_000;
+const MAX_HARNESS_LESSON_CHARS = 500;
 
 export function roleConstitutionsPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, '.vibes', 'role-constitutions.json');
@@ -47,6 +59,10 @@ export function missionOverlayPath(workspaceRoot: string): string {
 
 export function roleLessonsPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, '.vibes', 'role-lessons.json');
+}
+
+export function harnessLessonPath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, '.vibes', 'harness-lesson.json');
 }
 
 function readJsonFile<T>(file: string): T | null {
@@ -92,6 +108,22 @@ export function loadRoleLessons(workspaceRoot: string): RoleLessonsFile | null {
   return raw;
 }
 
+export function loadHarnessLesson(workspaceRoot: string): HarnessLessonFile | null {
+  const raw = readJsonFile<HarnessLessonFile>(harnessLessonPath(workspaceRoot));
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.v !== 1 && raw.v !== 2) return null;
+  if (typeof raw.lesson !== 'string' || !clip(raw.lesson)) return null;
+  return {
+    v: raw.v,
+    at: raw.at,
+    missionTitle: typeof raw.missionTitle === 'string' ? raw.missionTitle : undefined,
+    lesson: clip(raw.lesson).slice(0, MAX_HARNESS_LESSON_CHARS),
+    helped: typeof raw.helped === 'string' ? clip(raw.helped).slice(0, 200) : undefined,
+    failed: typeof raw.failed === 'string' ? clip(raw.failed).slice(0, 200) : undefined,
+    harnessClass: typeof raw.harnessClass === 'string' ? raw.harnessClass : raw.harnessClass === null ? null : undefined,
+  };
+}
+
 function constitutionForRole(file: RoleConstitutionsFile | null, role: RoleKey): string {
   if (!file?.roles) return '';
   const direct = clip(String(file.roles[role] ?? ''));
@@ -134,6 +166,15 @@ function formatLessons(role: RoleKey, lessons: string[]): string {
   return `[ROLE LESSONS (${role})]:\n${lessons.map((l) => `- ${l}`).join('\n')}`;
 }
 
+function formatHarnessLesson(lesson: HarnessLessonFile | null): string {
+  if (!lesson) return '';
+  const lines = [lesson.lesson];
+  if (lesson.helped) lines.push(`Keep: ${lesson.helped}`);
+  if (lesson.failed) lines.push(`Avoid: ${lesson.failed}`);
+  const title = lesson.missionTitle ? ` from "${lesson.missionTitle.slice(0, 80)}"` : '';
+  return `[HARNESS LESSON${title} — prior failure; do not repeat]:\n${lines.join('\n')}`;
+}
+
 export interface ComposeRolePromptInput {
   workspaceRoot: string;
   role: RoleKey;
@@ -152,17 +193,19 @@ export function composeRoleSystemPrompt(input: ComposeRolePromptInput): string {
   const constitution = constitutionForRole(loadRoleConstitutions(workspaceRoot), role);
   const overlay = loadMissionOverlay(workspaceRoot);
   const lessons = lessonsForRole(loadRoleLessons(workspaceRoot), role);
+  const harness = loadHarnessLesson(workspaceRoot);
 
   const sections = [
     formatConstitution(role, constitution),
     formatOverlay(overlay?.patches ?? []),
     formatLessons(role, lessons),
+    formatHarnessLesson(harness),
   ].filter(Boolean);
 
   if (sections.length === 0) return basePrompt;
 
   log(
-    `T80 compose role=${role}: constitution=${constitution ? 'yes' : 'no'} overlay=${overlay?.patches.length ?? 0} lessons=${lessons.length}`,
+    `T80 compose role=${role}: constitution=${constitution ? 'yes' : 'no'} overlay=${overlay?.patches.length ?? 0} lessons=${lessons.length} harness=${harness ? 'yes' : 'no'}`,
     'INFO',
   );
   return `${sections.join('\n\n')}\n\n${basePrompt}`;
