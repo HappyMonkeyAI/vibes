@@ -99,7 +99,8 @@ export function resolveShell(platform: NodeJS.Platform = process.platform): stri
 export function isSpawnFailure(error: { code?: string | number; message?: string } | null | undefined): boolean {
   if (!error) return false;
   if (error.code === 'ENOENT') return true;
-  if (typeof error.code === 'string' && /ENOENT|ENOTFOUND|EACCES/i.test(error.code)) return true;
+  // Only missing-binary / not-found — not EACCES (permission on a real command can soft-succeed).
+  if (typeof error.code === 'string' && /ENOENT|ENOTFOUND/i.test(error.code)) return true;
   const msg = String(error.message ?? '');
   return /\bENOENT\b/i.test(msg) || /spawn .* ENOENT/i.test(msg);
 }

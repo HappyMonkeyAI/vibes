@@ -43,7 +43,7 @@ test('shell tool runs a trivial command on this host', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibes-shell-'));
   const result = await shellTool.execute(
     {
-      command: process.platform === 'win32' ? 'echo ok' : 'echo ok',
+      command: 'echo ok',
       timeout: 10000,
       failOnError: true,
     },
