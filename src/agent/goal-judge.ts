@@ -7,6 +7,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { runRepositoryAudit } from './repository-audit.js';
 import { detectStackPolicy } from './stack-fence.js';
+import { resolveNpmExecutable } from './npm-exec.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -117,7 +118,7 @@ export class GoalJudge {
       if (!pkg.scripts || !pkg.scripts.build) return [];
 
       log('Running workspace build verification check...', 'INFO');
-      await execFileAsync('npm', ['run', 'build'], { cwd: workspaceRoot });
+      await execFileAsync(resolveNpmExecutable(), ['run', 'build'], { cwd: workspaceRoot });
       return [];
     } catch (error: any) {
       const stdout = error.stdout ? String(error.stdout) : '';

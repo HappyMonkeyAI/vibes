@@ -5,6 +5,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 import { GoalJudge, createDefaultGoalJudge } from '../dist/agent/goal-judge.js';
+import { resolveNpmExecutable } from '../dist/agent/npm-exec.js';
 
 function makeTask(overrides = {}) {
   return {
@@ -167,6 +168,11 @@ test('rejects when task status is not done', async () => {
 test('createDefaultGoalJudge returns a GoalJudge instance', () => {
   const judge = createDefaultGoalJudge();
   assert.ok(judge instanceof GoalJudge);
+});
+
+test('resolveNpmExecutable uses npm.cmd on win32 (T88)', () => {
+  assert.equal(resolveNpmExecutable('win32'), 'npm.cmd');
+  assert.equal(resolveNpmExecutable('linux'), 'npm');
 });
 
 test('approves when declared file is empty but task title or description contains "(empty)"', async () => {

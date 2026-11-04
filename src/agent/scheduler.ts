@@ -19,6 +19,7 @@ import { evaluateMissionCompletion } from './mission-integrator.js';
 import { Reviewer, validateReviewerModelSeparation } from './reviewer.js';
 import { getSmallModelRuntimeProfile } from './model-prompts.js';
 import { createTaskWorktree, isRepositoryClean, mergeDeclaredTaskFiles, removeTaskWorktree, type TaskWorktree } from './worktree-manager.js';
+import { resolveNpmExecutable } from './npm-exec.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -692,7 +693,7 @@ export class Scheduler {
     for (const args of commands) {
       const command = `npm ${args.join(' ')}`;
       try {
-        const executable = args[0] === 'diff' ? 'git' : 'npm';
+        const executable = args[0] === 'diff' ? 'git' : resolveNpmExecutable();
         const executableArgs = args[0] === 'diff' ? args : args;
         const result = await execFileAsync(executable, executableArgs, { cwd: workspace });
         commandsAndResults.push({ command: executable === 'git' ? `git ${args.join(' ')}` : command, exitCode: 0, summary: `${result.stdout}${result.stderr}`.trim().slice(-2000) || 'passed' });
