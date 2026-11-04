@@ -159,3 +159,39 @@ export function stackFencePlannerNote(workspaceRoot: string): string {
     'Never propose React, Next, .tsx, or react-dom. Tool calls that introduce React will be blocked.\n'
   );
 }
+
+type ExecutableTool = {
+  name: string;
+  execute: (args: any, context?: { workspaceRoot: string }) => Promise<{ success: boolean; error?: string; data?: unknown }>;
+};
+
+/**
+ * Wrap tool.execute so the fence cannot be skipped when beforeToolCall hooks
+ * are missing/overwritten (live dogfood: React edits landed with 0 fence hits).
+ * Policy is locked at wrap time from package.json.
+ */
+export function wrapToolsWithStackFence<T extends ExecutableTool>(
+  tools: T[],
+  workspaceRoot: string,
+): T[] {
+  const policy = detectStackPolicy(workspaceRoot);
+  if (policy !== 'vanilla-three') return tools;
+
+  return tools.map((tool) => {
+    if (!MUTATING_TOOLS.has(tool.name)) return tool;
+    const inner = tool.execute.bind(tool);
+    return {
+      ...tool,
+      execute: async (args: any, context?: { workspaceRoot: string }) => {
+        const denied = evaluateStackFence(
+          { tool: tool.name, args: (args && typeof args === 'object' ? args : {}) as Record<string, unknown> },
+          policy,
+        );
+        if (denied?.decision === 'deny') {
+          return { success: false, error: denied.reason };
+        }
+        return inner(args, context);
+      },
+    };
+  });
+}

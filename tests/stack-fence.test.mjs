@@ -10,6 +10,7 @@ import {
   detectStackPolicy,
   evaluateStackFence,
   stackFencePlannerNote,
+  wrapToolsWithStackFence,
 } from '../dist/agent/stack-fence.js';
 import { detectTechStack } from '../dist/agent/tech-stack.js';
 
@@ -130,4 +131,28 @@ test('detectTechStack: stray .tsx does not invent react when package has three o
   assert.ok(stack.includes('three'));
   assert.ok(stack.includes('vanilla-three'));
   assert.ok(!stack.includes('react'));
+});
+
+test('wrapToolsWithStackFence blocks react file_write at execute()', async () => {
+  const dir = tempWorkspace({ dependencies: { three: '0.185.0' } });
+  let ran = false;
+  const tools = wrapToolsWithStackFence(
+    [
+      {
+        name: 'file_write',
+        execute: async () => {
+          ran = true;
+          return { success: true, data: 'wrote' };
+        },
+      },
+    ],
+    dir,
+  );
+  const result = await tools[0].execute({
+    path: 'src/App.tsx',
+    content: "import React from 'react';\n",
+  });
+  assert.equal(result.success, false);
+  assert.match(String(result.error), /Stack fence/);
+  assert.equal(ran, false);
 });
