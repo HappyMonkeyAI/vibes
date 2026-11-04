@@ -6,8 +6,16 @@ import { runStructuralAudit } from './structural-audit.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { runRepositoryAudit } from './repository-audit.js';
+import { detectStackPolicy } from './stack-fence.js';
 
 const execFileAsync = promisify(execFile);
+
+/** Fence-blocked React probes must not be required to exist on vanilla-three workspaces. */
+export function isFenceBlockedProbePath(file: string, workspaceRoot?: string): boolean {
+  if (!/\.(tsx|jsx)$/i.test(file.replace(/\\/g, '/'))) return false;
+  if (!workspaceRoot) return false;
+  return detectStackPolicy(workspaceRoot) === 'vanilla-three';
+}
 
 export class GoalJudge {
   async evaluate(
@@ -18,8 +26,14 @@ export class GoalJudge {
     const baseDir = workspaceRoot || process.cwd();
 
     // --- Hard Evaluator Tier 1: Existence & Size Checks ---
+    // Empty `files` is allowed (fence-only / verify leaves): skip existence, still require
+    // acceptance criteria + done + output, then build when type=code.
     if (task.files && task.files.length > 0) {
       for (const file of task.files) {
+        if (isFenceBlockedProbePath(file, baseDir)) {
+          log(`Goal judge: skipping existence check for fence-blocked probe ${file}`, 'INFO');
+          continue;
+        }
         const fullPath = join(baseDir, file);
         try {
           if (!existsSync(fullPath)) {
@@ -35,8 +49,6 @@ export class GoalJudge {
           unmetCriteria.push(`Cannot access required file: ${file}`);
         }
       }
-    } else {
-      unmetCriteria.push('Task declares no files — nothing to validate');
     }
 
     if (task.status === 'done' && (!task.output || task.output.trim().length === 0)) {

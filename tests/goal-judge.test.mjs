@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'fs';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -83,14 +83,45 @@ test('approves when declared files exist and have content', async () => {
   assert.deepEqual(result.unmetCriteria, []);
 });
 
-test('rejects when task has no files declared', async () => {
+test('approves fence-only leaf with no files when done + criteria + output (T88)', async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'goal-judge-test-'));
+  writeFileSync(join(tmpDir, 'package.json'), JSON.stringify({ name: 'probe', scripts: {} }));
+
   const judge = new GoalJudge();
-  const task = makeTask({ files: [] });
+  const task = makeTask({
+    files: [],
+    type: 'research',
+    acceptance_criteria: ['Stack fence blocked React write'],
+    output: 'file_write src/App.tsx denied by Stack fence (vanilla-three)',
+  });
 
-  const result = await judge.evaluate(task);
+  const result = await judge.evaluate(task, tmpDir);
 
-  assert.equal(result.approved, false);
-  assert.ok(result.unmetCriteria.some(c => c.includes('no files')));
+  assert.equal(result.approved, true, result.feedback);
+  assert.deepEqual(result.unmetCriteria, []);
+});
+
+test('skips existence for .tsx probe on vanilla-three workspace (T88)', async () => {
+  const tmpDir = mkdtempSync(join(tmpdir(), 'goal-judge-fence-'));
+  writeFileSync(
+    join(tmpDir, 'package.json'),
+    JSON.stringify({ name: 'vrgallery', dependencies: { three: '^0.185.0' }, scripts: {} }),
+  );
+  mkdirSync(join(tmpDir, 'src'), { recursive: true });
+  writeFileSync(join(tmpDir, 'src', 'main.ts'), 'export {};\n');
+
+  const judge = new GoalJudge();
+  const task = makeTask({
+    files: ['src/App.tsx', 'src/main.ts'],
+    type: 'research',
+    acceptance_criteria: ['React probe blocked', 'vanilla entry intact'],
+    output: 'Stack fence denied App.tsx; main.ts ok',
+  });
+
+  const result = await judge.evaluate(task, tmpDir);
+
+  assert.equal(result.approved, true, result.feedback);
+  assert.ok(!result.unmetCriteria.some((c) => c.includes('App.tsx')));
 });
 
 test('rejects when task completed without output', async () => {
