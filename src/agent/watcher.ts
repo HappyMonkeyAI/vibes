@@ -67,7 +67,8 @@ export function startWatchDaemon(workspaceRoot: string) {
         ];
 
         const executor = new TaskExecutor(tools, {
-          getYoloMode: () => config.YOLO_MODE
+          getYoloMode: () => config.YOLO_MODE,
+          workspaceRoot: plan.workspace_root || workspaceRoot,
         });
 
         const onEvent = (event: ExecutionEvent) => {

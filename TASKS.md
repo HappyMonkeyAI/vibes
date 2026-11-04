@@ -157,6 +157,12 @@ No commit or push has been made.
 
 ## Highest-priority roadmap
 
+### Priority 0b — Stack fence for vanilla-three (T88 dogfood) ✅ 2026-11-04
+
+Status: [done] Hard tool fence when `package.json` has `three` and no `react`/`react-dom`/`next`: block `.tsx`/`.jsx` writes, react imports, and `npm install react*`. Wired on MCP + TUI + watcher executors (survives YOLO / approval overwrite). Planner gets `[STACK FENCE — HARD]` note; `detectTechStack` no longer invents `react` from stray `.tsx` when deps lack react.
+
+Evidence: `tests/stack-fence.test.mjs`; VRGallery Defiant Fable dogfood (React regression).
+
 ### Priority 0 — Clean reproduction gate
 
 Run the exact skeleton prompt in a fresh workspace using:

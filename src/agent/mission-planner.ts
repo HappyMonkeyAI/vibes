@@ -6,6 +6,7 @@ import { logObject, log } from '../logger.js';
 import { repairJson, extractJsonContent } from './json-repair.js';
 import { getMemoryService } from '../memory/index.js';
 import { detectTechStack } from './tech-stack.js';
+import { stackFencePlannerNote } from './stack-fence.js';
 import { getModelSpecificPrompt } from './model-prompts.js';
 import { ensureIntegrationTask } from './mission-integrator.js';
 
@@ -50,6 +51,7 @@ export class MissionPlanner {
     const stackContext = stack.length > 0
       ? `\n[WORKSPACE TECH STACK]: ${stack.join(', ')}\nTailor all task file paths, languages, and implementation approaches to this stack.\n`
       : '';
+    const fenceNote = stackFencePlannerNote(workspaceRoot);
 
     const plannerModel = config.PLANNER_MODEL || getModel();
     const modelSpecificPrompt = getModelSpecificPrompt(plannerModel, 'planner');
@@ -59,6 +61,7 @@ Output ONLY a JSON object.
 ${memoriesSection}
 ${projectRules}
 ${stackContext}
+${fenceNote}
 ${modelSpecificPrompt}
 
 Structure:

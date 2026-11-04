@@ -11,6 +11,7 @@ import { getSessionService, SessionData } from '../../agent/session-service.js';
 import { formatModelProviderError } from '../../ollama-client.js';
 import { applyLiveEvents, createLiveEventState, flushLiveEventState, isStreamDeltaEvent } from '../event-view-model.js';
 import { createApprovalHook, parseDenyPatterns } from '../../agent/approval-policy.js';
+import { composeBeforeToolCallHooks, createStackFenceHook } from '../../agent/stack-fence.js';
 import type { RunRecord } from '../../agent/run-registry.js';
 
 export type PendingPrompt =
@@ -185,14 +186,19 @@ export const useMission = () => {
         role: 'executor',
       });
       const triage = config.TRIAGE_ENABLED ? new TriageAgent(config.TRIAGE_AUTO_STEER) : null;
-      const baseHooks = createDefaultHooks(() => isYoloRef.current);
-      if (config.APPROVAL_MODE !== 'legacy') {
-        baseHooks.beforeToolCall = createApprovalHook(
+      const baseHooks = createDefaultHooks(() => isYoloRef.current, undefined, plan.workspace_root);
+      const approvalHook = config.APPROVAL_MODE !== 'legacy'
+        ? createApprovalHook(
           { mode: config.APPROVAL_MODE, denyPatterns: parseDenyPatterns(config.APPROVAL_DENY_PATTERNS) },
           // schedulerRef is populated below, before scheduler.run() can trigger a tool call.
           request => schedulerRef.current?.requestToolApproval(request) ?? Promise.resolve(false),
-        );
-      }
+        )
+        : undefined;
+      // T88 — stack fence must survive approval-hook overwrite (YOLO still fenced).
+      baseHooks.beforeToolCall = composeBeforeToolCallHooks(
+        createStackFenceHook(plan.workspace_root),
+        approvalHook,
+      );
       const executor = new TaskExecutor(tools, {
         getYoloMode: () => isYoloRef.current,
         hooks: triage ? withTriageHooks(baseHooks, triage) : baseHooks,
